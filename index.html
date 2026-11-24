@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="lv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Finanses</title>
+  <meta name="theme-color" content="#F5F5F7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Finanses">
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="icon.svg">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand"><img src="icon.svg" alt=""><span>Finanses</span></div>
+    <nav id="nav">
+      <a data-view="overview"><svg viewBox="0 0 24 24"><path d="M4 13h6V4H4zm0 7h6v-5H4zm10 0h6v-9h-6zm0-16v5h6V4z"/></svg><span>Pārskats</span></a>
+      <a data-view="transactions"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>Darījumi</span></a>
+      <a data-view="budget"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v8l5.5 5.5"/></svg><span>Budžets</span></a>
+      <a data-view="savings"><svg viewBox="0 0 24 24"><path d="M4 18l5-6 4 3 7-9"/><path d="M15 6h5v5"/></svg><span>Uzkrājumi</span></a>
+      <a data-view="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg><span>Iestatījumi</span></a>
+    </nav>
+    <div class="sync" id="syncStatus"></div>
+  </aside>
+  <main id="view"></main>
+  <div id="modal" class="modal" hidden><div class="sheet" id="modalBody"></div></div>
+  <div id="toast" class="toast" hidden></div>
+  <div id="login" class="login" hidden></div>
+  <div id="drop" class="drop" hidden><div>Atlaid, lai importētu izrakstu</div></div>
+  <script src="config.js"></script>
+  <script src="mock.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
