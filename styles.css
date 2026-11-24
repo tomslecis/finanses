@@ -233,3 +233,16 @@ html.is-app nav a.active svg { color: var(--accent); }
   .g2, .g3, .g-hero { grid-template-columns: 1fr; }
   .ring-wrap { flex-direction: column; align-items: flex-start; }
 }
+
+/* ---------- Banks ---------- */
+.steps { margin: 12px 0 0; padding-left: 20px; line-height: 1.55; color: var(--muted); }
+.steps li { margin-bottom: 6px; } .steps b { color: var(--text); font-weight: 600; }
+.steps a { color: var(--accent); }
+.copy { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.copy code { overflow-wrap: anywhere; user-select: all; }
+.bank { border-top: 1px solid var(--line); padding: 12px 0 4px; margin-top: 12px; }
+.bank-acc { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; }
+.bank-list { display: grid; gap: 4px; max-height: 50vh; overflow: auto; margin: 12px 0; }
+.bank-pick { display: flex; align-items: center; gap: 12px; padding: 10px; border: 0; border-radius: 12px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.bank-pick:hover { background: var(--fill); }
+.bank-pick img { width: 32px; height: 32px; object-fit: contain; border-radius: 8px; background: #fff; }

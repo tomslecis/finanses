@@ -102,6 +102,7 @@ async function showLogin() {
       localStorage.setItem(TOKEN_KEY, result.token);
       el.hidden = true;
       await refresh();
+      bankSync(true);
     } catch (err) { $('#loginErr').textContent = err.message; $('#pin').select(); }
   };
   setTimeout(() => $('#pin')?.focus(), 50);
@@ -536,13 +537,109 @@ function collectValues() {
   return v;
 }
 
+// ---------- Banks (Enable Banking, see apps-script/Bank.gs) ----------
+let BANK = null;
+const fmtDate = d => (d ? new Date(d).toLocaleDateString('lv-LV', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
+const daysTo = d => Math.ceil((new Date(d) - Date.now()) / 86400000);
+
+function bankCard(b) {
+  if (!b) return `<div class="card"><h2>Bankas</h2><div class="sub">Ielādē…</div></div>`;
+  if (!b.configured) {
+    const site = window.FIN_CONFIG?.webUrl || 'https://tomslecis.github.io/finanses/';
+    return `<div class="card">
+    <h2>Bankas</h2>
+    <div class="sub">Pieslēdz Swedbank un Revolut, lai darījumi ielādējas paši. Savienojums iet caur Enable Banking (licencēts ES starpnieks, saviem kontiem bez maksas). Vienreizēja iestatīšana:</div>
+    <ol class="steps">
+      <li>Reģistrējies <a href="https://enablebanking.com/cp/" target="_blank">enablebanking.com</a> un atver <b>API applications → Add a new application</b>.</li>
+      <li>Izvēlies <b>Production</b>, nosaukums “Finanses”. Laukā <b>Allowed redirect URLs</b> ielīmē šo adresi:
+        <div class="copy"><code>${esc(EXEC_URL)}</code><button type="button" class="btn ghost" data-act="copyRedirect">Kopēt</button></div></li>
+      <li>Privacy un Terms URL vari likt <code>${esc(site)}</code>, e-pastu savu. Nospied <b>Register</b>, un pārlūks lejupielādēs <code>.pem</code> failu.</li>
+      <li>Pie lietotnes nospied <b>Activate by linking accounts</b> un piesaisti savus Swedbank un Revolut kontus.</li>
+      <li>Šeit ielīmē <b>Application ID</b> un izvēlies lejupielādēto .pem failu.</li>
+    </ol>
+    <form class="row" id="bankSetup" style="flex-wrap:wrap;gap:10px;margin-top:14px">
+      <input type="text" id="ebApp" placeholder="Application ID" style="flex:1;min-width:240px" autocomplete="off">
+      <label class="btn"><span id="ebKeyName">Izvēlēties .pem…</span><input type="file" id="ebKey" accept=".pem,.key,.txt" hidden></label>
+      <button class="btn primary">Saglabāt</button>
+    </form>
+  </div>`;
+  }
+  const conns = b.connections;
+  return `<div class="card">
+    <div class="row"><h2 style="margin:0">Bankas</h2><span class="spacer"></span>
+      ${conns.length ? '<button class="btn" data-act="bankSync">Ielādēt tagad</button>' : ''}
+      <button class="btn primary" data-act="bankAdd">+ Pieslēgt banku</button></div>
+    ${conns.map(c => {
+      const d = daysTo(c.validUntil), late = c.error || d < 14;
+      return `<div class="bank">
+        <div class="row"><b>${esc(c.bank)}</b><span class="spacer"></span>
+          <button class="btn ghost" data-bankrenew="${esc(c.bank)}" data-country="${esc(c.country)}">Atjaunot atļauju</button>
+          <button class="icon-btn" data-bankdel="${esc(c.id)}" title="Atvienot">×</button></div>
+        ${c.accounts.map(a => `<div class="bank-acc"><span>${esc(a.name || 'Konts')} <span class="sub">${esc(a.iban)}</span></span>
+          <span class="num">${a.balance != null ? money(a.balance) : ''}</span></div>`).join('')}
+        <div class="sub ${late ? 'warn' : ''}">${c.error ? esc(c.error) + ' · ' : ''}${c.syncedAt ? 'Ielādēts ' + new Date(c.syncedAt).toLocaleString('lv-LV', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Vēl nav ielādēts'}
+          · atļauja līdz ${fmtDate(c.validUntil)}${d < 14 ? ` (vēl ${Math.max(0, d)} d.)` : ''}</div>
+      </div>`;
+    }).join('') || '<div class="sub" style="margin-top:10px">Vēl nav pieslēgta neviena banka.</div>'}
+    <div class="sub" style="margin-top:12px">Jaunie darījumi ielādējas paši, kad atver programmu (ne biežāk kā reizi 6 stundās), un tiek sašķiroti kategorijās. Pārskaitījumi starp taviem kontiem un Revolut papildināšana netiek skaitīti kā izdevumi. Bankas atļauja jāatjauno ik pēc 180 dienām.</div>
+  </div>`;
+}
+
+async function bankPicker() {
+  if (PREVIEW) return toast('Priekšskatījumā bankas nav pieejamas');
+  openModal(`<div class="row" style="gap:14px"><span class="spinner"></span><b>Ielādē banku sarakstu…</b></div>`);
+  let banks;
+  try { banks = (await call('bankBanks', { country: 'LV' })).result; } catch (e) { closeModal(); return toast(e.message); }
+  const top = n => (/swedbank/i.test(n) ? 0 : /revolut/i.test(n) ? 1 : 2);
+  banks.sort((a, b) => top(a.name) - top(b.name) || a.name.localeCompare(b.name));
+  const list = q => banks.filter(b => b.name.toLowerCase().includes(q.toLowerCase())).map(b =>
+    `<button class="bank-pick" data-bankpick="${esc(b.name)}" data-country="${esc(b.country)}" data-days="${b.days}">
+      ${b.logo ? `<img src="${esc(b.logo)}" alt="">` : '<span class="emoji">🏦</span>'}<span>${esc(b.name)}</span></button>`).join('') || '<div class="sub">Nav atrasts</div>';
+  openModal(`<h2>Pieslēgt banku</h2>
+    <input type="text" id="bankQ" class="input" placeholder="Meklēt banku…" style="width:100%">
+    <div class="bank-list" id="bankList">${list('')}</div>
+    <div class="sub">Atvērsies bankas lapa, kur apstiprināsi piekļuvi ar Smart-ID vai bankas lietotni. Programma redz tikai darījumus un atlikumu, maksājumus veikt nevar.</div>
+    <div class="actions"><button class="btn" data-close>Atcelt</button></div>`);
+  $('#bankQ').oninput = e => ($('#bankList').innerHTML = list(e.target.value));
+}
+
+async function bankConnect(name, country, days) {
+  if (PREVIEW) return toast('Priekšskatījumā bankas nav pieejamas');
+  const isMac = !!window.finanses;
+  try {
+    const back = isMac ? '' : location.origin + location.pathname + '#settings';
+    const { result } = await call('bankConnect', { name, country, days, back });
+    closeModal();
+    if (isMac) { window.open(result.url, '_blank'); ui.bankWait = true; toast('Apstiprini piekļuvi bankas lapā pārlūkā'); }
+    else location.href = result.url;
+  } catch (e) { closeModal(); toast(e.message); }
+}
+
+// auto: on app start / window focus; the server skips banks synced in the last few hours.
+async function bankSync(auto) {
+  if (PREVIEW) { if (!auto) toast('Priekšskatījumā bankas nav pieejamas'); return; }
+  try {
+    const { result } = await call('bankSync', { auto });
+    BANK = result.bank;
+    if (result.synced.length) ui.bankWait = false;
+    render();
+    const soon = BANK.connections.find(c => daysTo(c.validUntil) <= 7);
+    if (result.added) toast(`Ielādēti ${result.added} jauni darījumi no bankas`);
+    else if (result.errors.length) toast(result.errors[0]);
+    else if (soon) toast(`${soon.bank} atļauja beigsies pēc ${Math.max(0, daysTo(soon.validUntil))} d. Atjauno to Iestatījumos.`);
+    else if (!auto) toast('Jaunu darījumu nav');
+  } catch (e) { if (!auto) toast(e.message); }
+}
+window.addEventListener('focus', () => { if (ui.bankWait && S) bankSync(true); });
+
 // ---------- Settings ----------
 let INFO = null;
 let OLD = null;
 if (window.finanses?.oldData && !PREVIEW) window.finanses.oldData().then(d => { OLD = d; if (S && ui.view === 'settings') render(); });
 function settings() {
-  if (!INFO && !PREVIEW) call('info').then(r => { INFO = r.result; if (ui.view === 'settings') render(); }).catch(() => {});
+  if (!INFO && !PREVIEW) call('info').then(r => { INFO = r.result; BANK = BANK || INFO.bank; if (ui.view === 'settings') render(); }).catch(() => {});
   const info = INFO || {};
+  const bank = PREVIEW ? window.MockAPI.bank : BANK || info.bank;
   const isMac = !!window.finanses;
   const webUrl = window.FIN_CONFIG?.webUrl;
   return `
@@ -557,6 +654,7 @@ function settings() {
     <div class="sub">Visi dati (darījumi, budžets, uzkrājumi) glabājas tavā Google Sheets tabulā kontā toms.teo.t@gmail.com. Tabulā ir arī lasāmi pārskati “Uzkrājumi pārskats” un “Mēneši”.</div>
     <div class="actions" style="justify-content:flex-start">${info.sheetUrl ? `<a class="btn" href="${esc(info.sheetUrl)}" target="_blank">Atvērt tabulu ↗</a>` : '<span class="sub">Ielādē…</span>'}</div>
   </div>
+  ${bankCard(bank)}
   <div class="card">
     <h2>Izrakstu lasīšana ar Claude</h2>
     <div class="sub">${isMac ? 'Šajā Mac programmā izrakstus un ekrānuzņēmumus lasa tavs Claude Code (bez papildu maksas).' : 'Telefonā un pārlūkā izrakstus lasa Claude caur API atslēgu.'}
@@ -581,13 +679,21 @@ function settings() {
 
 // ---------- Events ----------
 document.addEventListener('click', async e => {
-  const el = e.target.closest('[data-act],[data-go],[data-tx],[data-close],[data-del],[data-delcat],[data-delpos],[data-emoji]');
+  const el = e.target.closest('[data-act],[data-go],[data-tx],[data-close],[data-del],[data-delcat],[data-delpos],[data-emoji],[data-bankpick],[data-bankrenew],[data-bankdel]');
   if (!el) return;
   if (el.dataset.go) return go(el.dataset.go);
   if (el.dataset.tx) return txForm(S.transactions.find(t => t.id === el.dataset.tx));
   if (el.hasAttribute('data-close')) return closeModal();
   if (el.dataset.del) { closeModal(); return mutate('DELETE', `/api/transactions/${el.dataset.del}`, null, 'Darījums dzēsts'); }
   if (el.dataset.emoji) return emojiPicker(el.dataset.emoji);
+  if (el.dataset.bankpick) return bankConnect(el.dataset.bankpick, el.dataset.country, +el.dataset.days);
+  if (el.dataset.bankrenew) return bankConnect(el.dataset.bankrenew, el.dataset.country);
+  if (el.dataset.bankdel) {
+    if (PREVIEW) return toast('Priekšskatījumā bankas nav pieejamas');
+    if (!confirmInline(el)) return;
+    try { BANK = (await call('bankRemove', { id: el.dataset.bankdel })).result; render(); toast('Banka atvienota'); } catch (err) { toast(err.message); }
+    return;
+  }
   if (el.dataset.delcat) {
     const c = cat(el.dataset.delcat);
     if (!confirmInline(el)) return;
@@ -618,6 +724,9 @@ document.addEventListener('click', async e => {
       } catch (err) { toast(err.message); render(); }
       return;
     }
+    case 'bankAdd': return bankPicker();
+    case 'bankSync': return bankSync(false);
+    case 'copyRedirect': navigator.clipboard.writeText(EXEC_URL); return toast('Adrese nokopēta');
     case 'logout':
       try { await call('logout'); } catch (err) {}
       localStorage.removeItem(TOKEN_KEY); S = null; $('#view').innerHTML = '';
@@ -636,6 +745,7 @@ function confirmInline(el) {
 document.addEventListener('change', e => {
   const t = e.target;
   if (t.id === 'fileIn') return importFiles([...t.files]);
+  if (t.id === 'ebKey') { $('#ebKeyName').textContent = t.files[0]?.name || 'Izvēlēties .pem…'; return; }
   if (t.id === 'filterCat') { ui.filterCat = t.value; return render(); }
   if (t.closest('#catTable') || t.id === 'totalLimit') return saveBudget();
   if (t.closest('#posTable')) {
@@ -653,6 +763,17 @@ document.addEventListener('input', e => {
 });
 
 document.addEventListener('submit', async e => {
+  if (e.target.id === 'bankSetup') {
+    e.preventDefault();
+    if (PREVIEW) return toast('Priekšskatījumā bankas nav pieejamas');
+    const file = $('#ebKey').files[0];
+    if (!file) return toast('Izvēlies lejupielādēto .pem failu');
+    try {
+      BANK = (await call('bankSetup', { appId: $('#ebApp').value, key: await file.text(), redirect: EXEC_URL })).result;
+      render(); toast('Enable Banking pieslēgts. Tagad pieslēdz banku.');
+    } catch (err) { toast(err.message); }
+    return;
+  }
   if (e.target.id !== 'pinForm') return;
   e.preventDefault();
   try {
@@ -665,5 +786,5 @@ document.addEventListener('submit', async e => {
 
 // Start: preview uses sample data; otherwise sign in first if this device has no session.
 if (PREVIEW || localStorage.getItem(TOKEN_KEY)) {
-  refresh().catch(e => { if (!$('#login').hidden) return; $('#view').innerHTML = `<div class="empty"><b>Neizdevās ielādēt</b>${esc(e.message)}</div>`; });
+  refresh().then(() => bankSync(true)).catch(e => { if (!$('#login').hidden) return; $('#view').innerHTML = `<div class="empty"><b>Neizdevās ielādēt</b>${esc(e.message)}</div>`; });
 } else showLogin();

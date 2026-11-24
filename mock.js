@@ -77,5 +77,15 @@ window.MockAPI = (() => {
     if (key === 'POST import') throw new Error('Priekšskatījumā imports nav pieejams, atver lietotni');
     throw new Error('Nav atrasts');
   }
-  return { handle };
+  // Sample bank connections for the settings screen.
+  const bank = {
+    configured: true, appId: 'preview',
+    connections: [
+      { id: 'b1', bank: 'Swedbank', country: 'LV', validUntil: new Date(Date.now() + 150 * 864e5).toISOString(), syncedAt: new Date().toISOString(), error: '',
+        accounts: [{ name: 'Norēķinu konts', iban: '•••• 4821', currency: 'EUR', balance: 1240.55 }, { name: 'Krājkonts', iban: '•••• 9310', currency: 'EUR', balance: 9300 }] },
+      { id: 'b2', bank: 'Revolut', country: 'LV', validUntil: new Date(Date.now() + 9 * 864e5).toISOString(), syncedAt: new Date(Date.now() - 3 * 36e5).toISOString(), error: '',
+        accounts: [{ name: 'EUR', iban: '•••• 0077', currency: 'EUR', balance: 212.4 }] },
+    ],
+  };
+  return { handle, bank };
 })();
