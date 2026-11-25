@@ -235,26 +235,33 @@ function txRow(t) {
   const c = cat(t.categoryId);
   return `<div class="tx" data-tx="${t.id}">
     ${t.type === 'income' ? emo({ icon: '💰', color: '#34C759' }, 'lg') : emo(c || { icon: '🏷️', color: '#8E8E93' }, 'lg')}
-    <div class="desc"><b>${esc(t.description)}</b><small>${t.type === 'income' ? 'Ienākumi' : esc(c?.name || 'Bez kategorijas')} · ${new Date(t.date).toLocaleDateString('lv-LV', { day: 'numeric', month: 'short' })}</small></div>
+    <div class="desc"><b>${esc(t.description)}</b><small>${t.type === 'income' ? 'Ienākumi' : esc(c?.name || 'Bez kategorijas')} · ${new Date(t.date).toLocaleDateString('lv-LV', { day: 'numeric', month: 'short' })}${t.source === CASH ? ' · 💶 skaidrā naudā' : ''}</small></div>
     <div class="amt num ${t.type === 'income' ? 'pos' : ''}">${t.type === 'income' ? '+' : '−'}${money(t.amount)}</div>
   </div>`;
 }
 
 // ---------- Transactions ----------
+const CASH = 'skaidra nauda'; // source of cash transactions entered by hand
+// New transactions default to today, or the 1st of the month being viewed.
+const defaultDate = () => { const today = new Date().toISOString().slice(0, 10); return today.startsWith(ui.month) ? today : ui.month + '-01'; };
+
 function transactions() {
   let list = ui.txMonth === 'month' ? monthTx(ui.month) : [...S.transactions];
   const q = ui.search.toLowerCase();
   if (q) list = list.filter(t => t.description.toLowerCase().includes(q) || String(t.amount).includes(q));
   if (ui.filterCat === 'income') list = list.filter(t => t.type === 'income');
+  else if (ui.filterCat === 'cash') list = list.filter(t => t.source === CASH);
   else if (ui.filterCat) list = list.filter(t => t.categoryId === ui.filterCat);
   list.sort((a, b) => b.date.localeCompare(a.date));
   const groups = {};
   list.forEach(t => (groups[t.date] = groups[t.date] || []).push(t));
   const exp = sum(list.filter(t => t.type !== 'income').map(t => t.amount));
+  const cash = list.filter(t => t.source === CASH);
+  const cashNet = sum(cash.map(t => (t.type === 'income' ? t.amount : -t.amount)));
 
   return `
   <div class="head"><h1>Darījumi</h1>
-    <div class="row">${ui.txMonth === 'month' ? monthSwitch() : ''}<button class="btn primary" data-act="addTx">+ Pievienot</button></div></div>
+    <div class="row">${ui.txMonth === 'month' ? monthSwitch() : ''}<button class="btn" data-act="addCash">💶 Skaidra nauda</button><button class="btn primary" data-act="addTx">+ Pievienot</button></div></div>
   <label class="dropzone" id="dz">
     <div class="ico">⤓</div>
     <div><b>Importēt izrakstu</b><div class="sub">Ievelc vai izvēlies XML (FiDAViSta, ISO 20022), PDF, CSV vai ekrānuzņēmumu. Var arī ielīmēt ar ⌘V. Claude sašķiros pa kategorijām.</div></div>
@@ -263,11 +270,11 @@ function transactions() {
   <div class="card">
     <div class="toolbar">
       <input type="text" id="search" placeholder="Meklēt…" value="${esc(ui.search)}">
-      <select id="filterCat"><option value="">Visas kategorijas</option><option value="income" ${ui.filterCat === 'income' ? 'selected' : ''}>Ienākumi</option>
+      <select id="filterCat"><option value="">Visas kategorijas</option><option value="income" ${ui.filterCat === 'income' ? 'selected' : ''}>Ienākumi</option><option value="cash" ${ui.filterCat === 'cash' ? 'selected' : ''}>💶 Skaidra nauda</option>
         ${S.categories.map(c => `<option value="${c.id}" ${ui.filterCat === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
       <div class="seg"><button data-act="txMonth" data-v="month" class="${ui.txMonth === 'month' ? 'on' : ''}">Mēnesis</button><button data-act="txMonth" data-v="all" class="${ui.txMonth === 'all' ? 'on' : ''}">Visi</button></div>
     </div>
-    <div class="sub">${list.length} darījumi · izdevumi ${money(exp)}</div>
+    <div class="sub">${list.length} darījumi · izdevumi ${money(exp)}${cash.length ? ` · skaidrā naudā ${signed(cashNet)}` : ''}</div>
     ${list.length ? Object.entries(groups).map(([d, txs]) => `<div class="day">${dayName(d)}</div>${txs.map(txRow).join('')}`).join('')
       : `<div class="empty"><b>Nav darījumu</b>Importē izrakstu vai pievieno darījumu ar roku.</div>`}
   </div>`;
@@ -286,12 +293,18 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 
 function txForm(t) {
   const isNew = !t.id;
-  openModal(`<h2>${isNew ? 'Jauns darījums' : 'Labot darījumu'}</h2>
+  // Payment method only for hand-entered transactions; bank and statement ones keep their source.
+  const manual = isNew || !t.source || t.source === 'manuāli' || t.source === CASH;
+  let source = t.source === CASH ? CASH : 'manuāli';
+  openModal(`<h2>${isNew ? (source === CASH ? 'Skaidra nauda' : 'Jauns darījums') : 'Labot darījumu'}</h2>
   <form class="form" id="txForm">
-    <div class="seg" style="justify-self:start"><button type="button" data-type="expense" class="${t.type !== 'income' ? 'on' : ''}">Izdevumi</button><button type="button" data-type="income" class="${t.type === 'income' ? 'on' : ''}">Ienākumi</button></div>
-    <label class="field">Apraksts<input type="text" name="description" value="${esc(t.description || '')}" placeholder="piem. Rimi" required></label>
+    <div class="row" style="flex-wrap:wrap;gap:10px">
+      <div class="seg"><button type="button" data-type="expense" class="${t.type !== 'income' ? 'on' : ''}">Izdevumi</button><button type="button" data-type="income" class="${t.type === 'income' ? 'on' : ''}">Ienākumi</button></div>
+      ${manual ? `<div class="seg"><button type="button" data-src="manuāli" class="${source !== CASH ? 'on' : ''}">Karte / konts</button><button type="button" data-src="${CASH}" class="${source === CASH ? 'on' : ''}">💶 Skaidrā naudā</button></div>` : ''}
+    </div>
+    <label class="field">Apraksts<input type="text" name="description" value="${esc(t.description || '')}" placeholder="${t.type === 'income' ? 'piem. Pārdots velosipēds' : 'piem. Tirgus'}" required></label>
     <div class="grid g2"><label class="field">Summa (€)<input type="number" name="amount" step="0.01" min="0" value="${t.amount ?? ''}" required></label>
-    <label class="field">Datums<input type="date" name="date" value="${t.date || new Date().toISOString().slice(0, 10)}" required></label></div>
+    <label class="field">Datums<input type="date" name="date" value="${t.date || defaultDate()}" required></label></div>
     <label class="field" id="catField" ${t.type === 'income' ? 'hidden' : ''}>Kategorija<select name="categoryId">${catOptions(t.categoryId)}</select></label>
     <div class="actions">${isNew ? '' : `<button type="button" class="btn danger" data-del="${t.id}">Dzēst</button>`}<span class="spacer"></span>
       <button type="button" class="btn" data-close>Atcelt</button><button class="btn primary">Saglabāt</button></div>
@@ -299,10 +312,12 @@ function txForm(t) {
   let type = t.type || 'expense';
   const f = $('#txForm');
   $$('[data-type]', f).forEach(b => b.onclick = () => { type = b.dataset.type; $$('[data-type]', f).forEach(x => x.classList.toggle('on', x === b)); $('#catField').hidden = type === 'income'; });
+  $$('[data-src]', f).forEach(b => b.onclick = () => { source = b.dataset.src; $$('[data-src]', f).forEach(x => x.classList.toggle('on', x === b)); });
   f.onsubmit = async e => {
     e.preventDefault();
-    const body = { ...Object.fromEntries(new FormData(f)), type };
+    const body = { ...Object.fromEntries(new FormData(f)), type, ...(manual ? { source } : {}) };
     closeModal();
+    ui.month = body.date.slice(0, 7); // show the month the transaction went into
     if (isNew) await mutate('POST', '/api/transactions', body, 'Darījums pievienots');
     else await mutate('PUT', `/api/transactions/${t.id}`, body, 'Saglabāts');
   };
@@ -581,7 +596,7 @@ function bankCard(b) {
           · atļauja līdz ${fmtDate(c.validUntil)}${d < 14 ? ` (vēl ${Math.max(0, d)} d.)` : ''}</div>
       </div>`;
     }).join('') || '<div class="sub" style="margin-top:10px">Vēl nav pieslēgta neviena banka.</div>'}
-    <div class="sub" style="margin-top:12px">Jaunie darījumi ielādējas paši, kad atver programmu (ne biežāk kā reizi 6 stundās), un tiek sašķiroti kategorijās. Pārskaitījumi starp taviem kontiem un Revolut papildināšana netiek skaitīti kā izdevumi. Bankas atļauja jāatjauno ik pēc 180 dienām.</div>
+    <div class="sub" style="margin-top:12px">${b.daily ? `Jaunie darījumi Google Sheets ielādējas paši katru dienu ap 6:00, arī ja programma nav atvērta${b.lastDaily ? ` (pēdējoreiz ${new Date(b.lastDaily.at).toLocaleString('lv-LV', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}, +${b.lastDaily.added})` : ''}, un vēl atverot programmu.` : 'Jaunie darījumi ielādējas, kad atver programmu (ne biežāk kā reizi 6 stundās).'} Tie tiek sašķiroti kategorijās. Pārskaitījumi starp taviem kontiem un Revolut papildināšana netiek skaitīti kā izdevumi. Bankas atļauja jāatjauno ik pēc 180 dienām.</div>
   </div>`;
 }
 
@@ -708,6 +723,7 @@ document.addEventListener('click', async e => {
     case 'nextMonth': ui.month = shiftMonth(ui.month, 1); return render();
     case 'txMonth': ui.txMonth = el.dataset.v; return render();
     case 'addTx': return txForm({ type: 'expense', categoryId: S.categories[0]?.id });
+    case 'addCash': return txForm({ type: 'expense', categoryId: S.categories[0]?.id, source: CASH });
     case 'addCat': return saveBudget({ categories: [...collectCats(), { name: 'Jauna kategorija', icon: '🏷️', color: '#8E8E93', limit: 0 }] });
     case 'addPos': return mutate('PUT', '/api/savings/positions', { positions: [...collectPositions(), { name: 'Jauna pozīcija', assetType: S.savings.assetTypes[0], place: '' }] });
     case 'copyPrev': {

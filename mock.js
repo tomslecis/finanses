@@ -79,7 +79,7 @@ window.MockAPI = (() => {
   }
   // Sample bank connections for the settings screen.
   const bank = {
-    configured: true, appId: 'preview',
+    configured: true, appId: 'preview', daily: true, lastDaily: { at: new Date(new Date().setHours(6, 0, 0, 0)).toISOString(), added: 4, errors: [] },
     connections: [
       { id: 'b1', bank: 'Swedbank', country: 'LV', validUntil: new Date(Date.now() + 150 * 864e5).toISOString(), syncedAt: new Date().toISOString(), error: '',
         accounts: [{ name: 'Norēķinu konts', iban: '•••• 4821', currency: 'EUR', balance: 1240.55 }, { name: 'Krājkonts', iban: '•••• 9310', currency: 'EUR', balance: 9300 }] },
