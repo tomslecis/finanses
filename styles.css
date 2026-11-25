@@ -17,9 +17,15 @@
   color: var(--text);
   -webkit-font-smoothing: antialiased;
 }
-/* Dark mode only on wide screens; the phone version is always light. */
+/* Theme: Settings → Izskats sets html[data-theme]. "Auto" follows the system on wide screens; the phone stays light. */
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #000; --card: #1C1C1E; --text: #F5F5F7; --muted: #8E8E93;
+  --line: rgba(255, 255, 255, 0.1); --fill: rgba(118, 118, 128, 0.24);
+  --accent: #30D158; --accent-soft: rgba(48, 209, 88, 0.14); --shadow: none;
+}
 @media (prefers-color-scheme: dark) and (min-width: 861px) {
-  :root {
+  html:not([data-theme]) {
     --bg: #000; --card: #1C1C1E; --text: #F5F5F7; --muted: #8E8E93;
     --line: rgba(255, 255, 255, 0.1); --fill: rgba(118, 118, 128, 0.24);
     --accent: #30D158; --accent-soft: rgba(48, 209, 88, 0.14); --shadow: none;
@@ -215,7 +221,8 @@ html.is-app .head { -webkit-app-region: drag; }
 html.is-app .head > * { -webkit-app-region: no-drag; }
 html.is-app nav a.active { background: rgba(0, 0, 0, 0.07); color: var(--text); }
 html.is-app nav a.active svg { color: var(--accent); }
-@media (prefers-color-scheme: dark) { html.is-app nav a.active { background: rgba(255, 255, 255, 0.1); } }
+html.is-app[data-theme="dark"] nav a.active { background: rgba(255, 255, 255, 0.1); }
+@media (prefers-color-scheme: dark) { html.is-app:not([data-theme]) nav a.active { background: rgba(255, 255, 255, 0.1); } }
 
 /* ---------- Banks ---------- */
 .steps { margin: 12px 0 0; padding-left: 20px; line-height: 1.55; color: var(--muted); }
@@ -336,7 +343,7 @@ input.bare:focus, select.bare:focus { background: var(--card); border-color: var
   .topbar {
     display: grid; grid-template-columns: 92px 1fr 92px; align-items: center; position: sticky; top: 0; z-index: 15;
     padding: env(safe-area-inset-top) 6px 0; min-height: calc(52px + env(safe-area-inset-top));
-    background: rgba(245, 245, 247, .82); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
+    background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
     border-bottom: .5px solid var(--line);
   }
   .topbar-title { text-align: center; font-weight: 600; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -351,7 +358,7 @@ input.bare:focus, select.bare:focus { background: var(--card); border-color: var
   .sidebar {
     position: fixed; top: 0; bottom: 0; left: 0; z-index: 30; width: min(300px, 84vw); height: auto;
     padding: calc(20px + env(safe-area-inset-top)) 14px calc(20px + env(safe-area-inset-bottom)); gap: 26px;
-    background: #fff; backdrop-filter: none; border-right: 0; box-shadow: 0 0 40px rgba(0, 0, 0, .18);
+    background: var(--card); backdrop-filter: none; border-right: 0; box-shadow: 0 0 40px rgba(0, 0, 0, .18);
     transform: translateX(-105%); transition: transform .32s cubic-bezier(.32, .72, 0, 1); visibility: hidden;
   }
   body.menu-open .sidebar { transform: none; visibility: visible; }

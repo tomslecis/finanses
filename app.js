@@ -14,6 +14,18 @@ const ui = {
 // ---------- API ----------
 // In the Mac app the page is loaded with ?app=1 (native title bar area + vibrancy).
 if (new URLSearchParams(location.search).has('app')) document.documentElement.classList.add('is-app');
+// Light / dark / auto (system), kept per device.
+const THEME_KEY = 'finanses-theme';
+function applyTheme(t) {
+  if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+  else delete document.documentElement.dataset.theme;
+  // Browser bar colour: fixed for an explicit choice, else the system-dependent pair from index.html.
+  const [base, darkMeta] = document.querySelectorAll('meta[name="theme-color"]');
+  base.content = t === 'dark' ? '#000000' : '#F5F5F7';
+  darkMeta.media = t ? 'not all' : '(prefers-color-scheme: dark) and (min-width: 861px)';
+  window.finanses?.setTheme?.(t || 'system');
+}
+applyTheme(localStorage.getItem(THEME_KEY) || '');
 // Preview (sample data from mock.js): above code's side panel adds ?preview=1; also when no backend is configured.
 const PREVIEW = !!window.MockAPI && (new URLSearchParams(location.search).has('preview') || (!window.finanses && !window.FIN_CONFIG?.execUrl));
 
@@ -997,6 +1009,12 @@ function settings() {
     <div class="sub">Visi dati (darījumi, budžets, uzkrājumi) glabājas tavā Google Sheets tabulā kontā toms.teo.t@gmail.com. Tabulā ir arī lasāmi pārskati “Uzkrājumi pārskats” un “Mēneši”.</div>
     <div class="actions" style="justify-content:flex-start">${info.sheetUrl ? `<a class="btn" href="${esc(info.sheetUrl)}" target="_blank">Atvērt tabulu ↗</a>` : '<span class="sub">Ielādē…</span>'}</div>
   </div>
+  <div class="card">
+    <h2>Izskats</h2>
+    <div class="seg" style="margin-top:4px">${[['', 'Automātiski'], ['light', 'Gaišs'], ['dark', 'Tumšs']].map(([v, l]) =>
+      `<button type="button" data-act="theme" data-v="${v}" class="${(localStorage.getItem(THEME_KEY) || '') === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <div class="sub" style="margin-top:8px">Automātiski – kā sistēmā (telefonā vienmēr gaišs). Izvēle saglabājas šajā ierīcē.</div>
+  </div>
   ${bankCard(bank)}
   ${ownNamesCard()}
   <div class="card">
@@ -1056,6 +1074,9 @@ document.addEventListener('click', async e => {
     case 'nextMonth': ui.month = shiftMonth(ui.month, 1); return render();
     case 'txMonth': ui.txMonth = el.dataset.v; return render();
     case 'txType': ui.txType = el.dataset.v; return render();
+    case 'theme':
+      if (el.dataset.v) localStorage.setItem(THEME_KEY, el.dataset.v); else localStorage.removeItem(THEME_KEY);
+      applyTheme(el.dataset.v); return render();
     case 'showType': ui.txType = el.dataset.v; ui.filterCat = ''; ui.txMonth = 'month'; return go('transactions');
     case 'addTx': return txForm({ type: 'expense', categoryId: S.categories[0]?.id });
     case 'voice': return voiceForm();
