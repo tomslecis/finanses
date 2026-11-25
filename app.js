@@ -656,31 +656,48 @@ function budget() {
   const sp = spending(ui.month);
   const catSum = sum(S.categories.map(c => c.limit));
   const lim = S.settings.totalLimit;
+  const pct = lim ? Math.round((sp.total / lim) * 100) : 0;
+  const left = lim - sp.total;
+  const over = S.categories.filter(c => c.limit && (sp.byCat[c.id] || 0) > c.limit).length;
   return `
   <div class="head"><h1>Budžets</h1>${monthSwitch()}</div>
-  <div class="card">
-    <div class="row" style="flex-wrap:wrap;gap:20px">
-      <label class="field" style="width:220px">Kopējais mēneša limits (€)<input type="number" id="totalLimit" min="0" step="10" value="${lim}"></label>
-      <div><span class="stat-label">Kategoriju limitu summa</span><div class="stat-value num ${catSum > lim ? 'warn' : ''}">${money(catSum, { whole: true })}</div></div>
-      <div><span class="stat-label">Iztērēts ${monthName(ui.month).toLowerCase()}</span><div class="stat-value num">${money(sp.total)}</div></div>
+  <div class="card budget-hero">
+    <div class="bh-top">
+      <div><span class="stat-label">Iztērēts ${monthName(ui.month).toLowerCase()}</span>
+        <div class="big num">${money(sp.total)}</div>
+        <div class="sub ${left < 0 ? 'neg' : ''}">${left >= 0 ? `vēl atlicis ${money(left, { whole: true })}` : `pārtērēts par ${money(-left, { whole: true })}`}</div></div>
+      <label class="bh-limit"><span class="stat-label">Mēneša limits</span>
+        <span class="money-in"><input type="number" id="totalLimit" class="bare num" min="0" step="10" value="${lim}" aria-label="Kopējais mēneša limits eiro"><i>€</i></span></label>
     </div>
-    ${catSum > lim ? `<div class="sub warn" style="margin-top:10px">Kategoriju limiti kopā pārsniedz kopējo limitu par ${money(catSum - lim, { whole: true })}.</div>` : ''}
+    <div class="bh-bar"><i style="width:${Math.min(pct, 100)}%;background:${pctColor(pct)}"></i></div>
+    <div class="bh-foot sub"><span class="num" style="color:${pctColor(pct)};font-weight:600">${pct}%</span>
+      <span>Kategoriju limiti kopā <b class="num ${catSum > lim ? 'warn' : ''}">${money(catSum, { whole: true })}</b>${catSum > lim ? ` · par ${money(catSum - lim, { whole: true })} vairāk nekā kopējais limits` : ''}</span>
+      ${over ? `<span class="pill neg">${over} pārsniegt${over === 1 ? 'a' : 'as'}</span>` : ''}</div>
   </div>
   <div class="card">
-    <div class="row"><h2>Kategorijas un limiti</h2><span class="spacer"></span><button class="btn" data-act="addCat">+ Kategorija</button></div>
-    <table id="catTable"><thead><tr><th style="width:84px"></th><th>Nosaukums</th><th class="r" style="width:150px">Limits (€)</th><th class="r" style="width:130px">Iztērēts</th><th class="r" style="width:70px">%</th><th style="width:36px"></th></tr></thead>
-    <tbody>${S.categories.map(c => {
-      const s = sp.byCat[c.id] || 0; const p = c.limit ? Math.round((s / c.limit) * 100) : 0;
-      return `<tr data-id="${c.id}"><td><div class="row" style="gap:6px"><button class="emoji-btn" data-emoji="${c.id}" data-icon="${esc(c.icon || '🏷️')}" title="Mainīt emoji">${emo(c, 'lg')}</button><input type="color" class="cc" value="${c.color}" title="Krāsa"></div></td><td><input type="text" class="cn" value="${esc(c.name)}"></td>
-        <td><input type="number" class="cl" min="0" step="5" value="${c.limit}"></td><td class="r num">${money(s)}</td>
-        <td class="r num" style="color:${pctColor(p)}">${p}%</td><td><button class="icon-btn" data-delcat="${c.id}" title="Dzēst">×</button></td></tr>`;
-    }).join('')}</tbody></table>
-    <div class="sub" style="margin-top:12px">Izmaiņas saglabājas automātiski. Dzēšot kategoriju, tās darījumi pāriet uz “Citi”.</div>
+    <div class="row"><h2 style="margin:0">Kategorijas</h2><span class="spacer"></span><button class="btn" data-act="addCat">+ Kategorija</button></div>
+    <div id="catTable">${S.categories.map(c => {
+      const spent = sp.byCat[c.id] || 0, p = c.limit ? Math.round((spent / c.limit) * 100) : (spent ? 100 : 0), rest = c.limit - spent;
+      return `<div class="cat-item ${!spent && !c.limit ? 'quiet' : ''}" data-id="${c.id}">
+        <div class="cat-icon"><button class="emoji-btn" data-emoji="${c.id}" data-icon="${esc(c.icon || '🏷️')}" title="Mainīt emoji">${emo(c, 'lg')}</button>
+          <label class="swatch" title="Krāsa" style="background:${c.color}"><input type="color" class="cc" value="${c.color}" aria-label="Krāsa"></label></div>
+        <div class="cat-body">
+          <div class="cat-line"><input type="text" class="cn bare" value="${esc(c.name)}" aria-label="Nosaukums">
+            <span class="num cat-spent"><b>${money(spent, { whole: spent >= 100 })}</b></span></div>
+          <div class="bar"><i style="width:${Math.min(p, 100)}%;background:${p > 100 ? 'var(--red)' : c.color}"></i></div>
+          <div class="cat-line sub"><span class="${rest < 0 ? 'neg' : ''}">${!c.limit ? 'bez limita' : rest >= 0 ? `atlicis ${money(rest, { whole: true })}` : `pārsniegts par ${money(-rest, { whole: true })}`}</span>
+            <span class="num" style="color:${pctColor(p)};font-weight:600">${p}%</span></div>
+        </div>
+        <label class="cat-limit"><span class="sub">Limits</span><span class="money-in"><input type="number" class="cl bare num" min="0" step="5" value="${c.limit}" aria-label="Limits eiro"><i>€</i></span></label>
+        <button class="icon-btn cat-del" data-delcat="${c.id}" title="Dzēst" aria-label="Dzēst kategoriju">×</button>
+      </div>`;
+    }).join('')}</div>
+    <div class="sub" style="margin-top:12px">Izmaiņas saglabājas automātiski. Uzklikšķini uz emoji vai krāsas punkta, lai tos mainītu. Dzēšot kategoriju, tās darījumi pāriet uz “Citi”.</div>
   </div>`;
 }
 
 function collectCats() {
-  return $$('#catTable tbody tr').map(tr => ({ id: tr.dataset.id, icon: $('.emoji-btn', tr).dataset.icon, name: $('.cn', tr).value, color: $('.cc', tr).value, limit: $('.cl', tr).value }));
+  return $$('#catTable [data-id]').map(tr => ({ id: tr.dataset.id, icon: $('.emoji-btn', tr).dataset.icon, name: $('.cn', tr).value, color: $('.cc', tr).value, limit: $('.cl', tr).value }));
 }
 // Only send categories when the budget table is on screen, so a stray call can never wipe them.
 const saveBudget = (extra = {}) => {
