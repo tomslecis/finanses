@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Finanses</title>
-  <meta name="theme-color" content="#F5F5F7" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#F5F5F7">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark) and (min-width: 861px)">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Finanses">
@@ -27,6 +27,13 @@
     </nav>
     <div class="sync" id="syncStatus"></div>
   </aside>
+  <!-- Phone: top bar with menu button; the sidebar becomes a slide-in drawer -->
+  <header class="topbar">
+    <button class="burger" id="menuBtn" aria-label="Atvērt izvēlni" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <div class="topbar-title" id="topTitle">Finanses</div>
+    <div class="topbar-act" id="topAct"></div>
+  </header>
+  <div class="scrim" id="scrim"></div>
   <main id="view"></main>
   <div id="modal" class="modal" hidden><div class="sheet" id="modalBody"></div></div>
   <div id="toast" class="toast" hidden></div>

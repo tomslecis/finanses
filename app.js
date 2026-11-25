@@ -137,7 +137,17 @@ const snapTotal = m => (S.savings.snapshots[m] ? sum(Object.values(S.savings.sna
 const prevSnapMonth = m => Object.keys(S.savings.snapshots).filter(k => k < m).sort().pop();
 
 // ---------- Router ----------
-function go(view) { ui.view = view; location.hash = view; render(); window.scrollTo(0, 0); }
+function go(view) { closeMenu(); ui.view = view; location.hash = view; render(); window.scrollTo(0, 0); }
+
+// Phone menu: the sidebar slides in from the left.
+const openMenu = () => { document.body.classList.add('menu-open'); $('#menuBtn').setAttribute('aria-expanded', 'true'); };
+function closeMenu() { document.body.classList.remove('menu-open'); $('#menuBtn').setAttribute('aria-expanded', 'false'); }
+$('#menuBtn').addEventListener('click', openMenu);
+$('#scrim').addEventListener('click', closeMenu);
+let swipeX = null;
+$('.sidebar').addEventListener('touchstart', e => (swipeX = e.touches[0].clientX), { passive: true });
+$('.sidebar').addEventListener('touchend', e => { if (swipeX != null && e.changedTouches[0].clientX - swipeX < -50) closeMenu(); swipeX = null; });
+const VIEW_TITLES = { overview: 'Pārskats', transactions: 'Darījumi', budget: 'Budžets', savings: 'Uzkrājumi', settings: 'Iestatījumi' };
 $('#nav').addEventListener('click', e => { const a = e.target.closest('a'); if (a) go(a.dataset.view); });
 window.addEventListener('hashchange', () => { const v = location.hash.slice(1); if (v && v !== ui.view) { ui.view = v; render(); } });
 
@@ -146,6 +156,9 @@ function render() {
   $$('#nav a').forEach(a => a.classList.toggle('active', a.dataset.view === ui.view));
   const views = { overview, transactions, budget, savings, settings };
   $('#view').innerHTML = (views[ui.view] || overview)();
+  $('#topTitle').textContent = VIEW_TITLES[ui.view] || VIEW_TITLES.overview;
+  $('#topAct').innerHTML = ['overview', 'transactions'].includes(ui.view) || !VIEW_TITLES[ui.view]
+    ? '<button class="top-add" data-act="addTx" aria-label="Pievienot darījumu">+</button>' : '';
   renderSync();
 }
 
@@ -220,7 +233,7 @@ function catRow(c) {
   const p = c.limit ? Math.round((c.spent / c.limit) * 100) : (c.spent ? 100 : 0);
   const left = c.limit - c.spent;
   return `<div class="cat-row">
-    <div class="cat-name">${emo(c)}${esc(c.name)}</div>
+    <div class="cat-name">${emo(c)}<span>${esc(c.name)}</span></div>
     <div class="num"><b>${money(c.spent)}</b> <span class="sub">/ ${money(c.limit, { whole: true })}</span></div>
     <div class="bar"><i style="width:${Math.min(p, 100)}%;background:${p > 100 ? 'var(--red)' : c.color}"></i></div>
     <div class="sub num">${p}%</div>
@@ -289,7 +302,7 @@ function openModal(html, wide) {
 }
 const closeModal = () => ($('#modal').hidden = true);
 $('#modal').addEventListener('mousedown', e => { if (e.target.id === 'modal') closeModal(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeMenu(); } });
 
 function txForm(t) {
   const isNew = !t.id;
@@ -360,7 +373,7 @@ function reviewImport({ transactions: txs, warnings }) {
   openModal(`<h2>Pārbaudi importu</h2>
     <div class="sub" style="margin-bottom:14px">Atrasti ${txs.length} darījumi. Vari mainīt kategorijas pirms saglabāšanas.${txs.some(t => t.duplicate) ? ' Iespējamie dublikāti ir atzīmēti pelēki un neatķeksēti.' : ''}</div>
     ${warnings.length ? `<div class="sub warn" style="margin-bottom:10px">${warnings.map(esc).join('<br>')}</div>` : ''}
-    <table><thead><tr><th style="width:30px"><input type="checkbox" id="allChk" checked></th><th>Datums</th><th>Apraksts</th><th>Kategorija</th><th class="r">Summa</th></tr></thead>
+    <table id="importTable"><thead><tr><th style="width:30px"><label class="all-chk"><input type="checkbox" id="allChk" checked><span>Atzīmēt visus</span></label></th><th>Datums</th><th>Apraksts</th><th>Kategorija</th><th class="r">Summa</th></tr></thead>
     <tbody>${txs.map((t, i) => `<tr class="${t.duplicate ? 'dup' : ''}" data-i="${i}">
       <td><input type="checkbox" class="chk" ${t.duplicate ? '' : 'checked'}></td>
       <td><input type="date" class="d" value="${t.date}"></td>
