@@ -403,8 +403,9 @@ function transactions() {
     ['income', 'Ienākumi', '+' + money(sum(byType('income').map(t => t.amount)), { whole: true })]];
   if (byType('transfer').length || ui.txType === 'transfer') tabs.push(['transfer', 'Starp kontiem', money(sum(byType('transfer').map(t => t.amount)), { whole: true })]);
   if (ui.txType) list = byType(ui.txType);
-  const catFilter = !ui.txType || ui.txType === 'expense';
-  if (ui.filterCat && catFilter) list = list.filter(t => t.categoryId === ui.filterCat);
+  const catFilter = ui.txType !== 'transfer';
+  const byCat = ui.filterCat && (!ui.txType || ui.txType === 'expense');
+  if (byCat) list = list.filter(t => t.categoryId === ui.filterCat);
   const accounts = [...new Set(S.transactions.map(t => t.source || 'manuāli'))].sort((a, b) => accLabel(a).localeCompare(accLabel(b)));
   list.sort((a, b) => b.date.localeCompare(a.date));
   const groups = {};
@@ -429,11 +430,12 @@ function transactions() {
     <div class="toolbar">
       <input type="text" id="search" placeholder="Meklēt…" value="${esc(ui.search)}">
       ${catFilter ? `<select id="filterCat"><option value="">Visas kategorijas</option>
-        ${S.categories.map(c => `<option value="${c.id}" ${ui.filterCat === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>` : ''}
+        <option value="income" ${ui.txType === 'income' ? 'selected' : ''}>💰 Ienākumi</option>
+        ${S.categories.map(c => `<option value="${c.id}" ${byCat && ui.filterCat === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>` : ''}
       <select id="filterAcc"><option value="">Visi konti</option>${accounts.map(a => `<option value="${esc(a)}" ${ui.filterAcc === a ? 'selected' : ''}>${esc(accLabel(a))}</option>`).join('')}</select>
       <div class="seg"><button data-act="txMonth" data-v="month" class="${ui.txMonth === 'month' ? 'on' : ''}">Mēnesis</button><button data-act="txMonth" data-v="all" class="${ui.txMonth === 'all' ? 'on' : ''}">Visi</button></div>
     </div>
-    <div class="sub">${list.length} darījumi · izdevumi ${money(exp)}${inc ? ` · ienākumi ${money(inc)}` : ''}${cash.length ? ` · skaidrā naudā ${signed(cashNet)}` : ''}${moved.length ? ` · ${moved.length} pārskaitījumi starp kontiem netiek skaitīti` : ''}</div>
+    <div class="sub">${list.length} darījumi${exp || !inc ? ` · izdevumi ${money(exp)}` : ''}${inc ? ` · ienākumi ${money(inc)}` : ''}${cash.length ? ` · skaidrā naudā ${signed(cashNet)}` : ''}${moved.length ? ` · ${moved.length} pārskaitījumi starp kontiem netiek skaitīti` : ''}</div>
     ${list.length ? Object.entries(groups).map(([d, txs]) => `<div class="day">${dayName(d)}</div>${txs.map(txRow).join('')}`).join('')
       : `<div class="empty"><b>Nav darījumu</b>Importē izrakstu vai pievieno darījumu ar roku.</div>`}
   </div>`;
@@ -1121,7 +1123,12 @@ document.addEventListener('change', e => {
   const t = e.target;
   if (t.id === 'fileIn') return importFiles([...t.files]);
   if (t.id === 'ebKey') { $('#ebKeyName').textContent = t.files[0]?.name || 'Izvēlēties .pem…'; return; }
-  if (t.id === 'filterCat') { ui.filterCat = t.value; return render(); }
+  if (t.id === 'filterCat') {
+    // "Ienākumi" in the category list shows income (same as its tab); a spending category shows expenses.
+    if (t.value === 'income') { ui.txType = 'income'; ui.filterCat = ''; }
+    else { ui.filterCat = t.value; if (ui.txType === 'income') ui.txType = t.value ? 'expense' : ''; }
+    return render();
+  }
   if (t.id === 'filterAcc') { ui.filterAcc = t.value; return render(); }
   if (t.matches('.acc-label, .acc-skip')) return saveAccount(t.closest('.bank-acc'));
   if (t.closest('#catTable') || t.id === 'totalLimit') return saveBudget();
