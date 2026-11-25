@@ -8,7 +8,7 @@ let S = null; // server state
 const ui = {
   view: location.hash.slice(1) || 'overview',
   month: new Date().toISOString().slice(0, 7),
-  search: '', filterCat: '', filterAcc: '', txMonth: 'month',
+  search: '', filterCat: '', filterAcc: '', txMonth: 'month', txType: '',
 };
 
 // ---------- API ----------
@@ -313,7 +313,7 @@ function overview() {
           <div class="center"><span class="pct num">${pct}%</span><span class="sub">izlietots</span></div>
         </div>
         <div class="kv">
-          <div><span class="stat-label">Iztērēts</span><span class="big num">${money(sp.total)}</span><span class="sub">no ${money(limit, { whole: true })} limita</span></div>
+          <div class="link" data-act="showType" data-v="expense"><span class="stat-label">Iztērēts ›</span><span class="big num">${money(sp.total)}</span><span class="sub">no ${money(limit, { whole: true })} limita</span></div>
           <div><span class="stat-label">${left >= 0 ? 'Vēl atlicis' : 'Pārtērēts'}</span><span class="stat-value num ${left >= 0 ? 'pos' : 'neg'}">${money(Math.abs(left))}</span>
             ${isCur && left > 0 ? `<span class="sub">≈ ${money(left / daysLeft)} dienā vēl ${daysLeft} d.</span>` : ''}</div>
         </div>
@@ -321,7 +321,7 @@ function overview() {
     </div>
     <div class="grid" style="grid-template-rows:1fr 1fr">
       <div class="card grid g2" style="margin:0">
-        <div><span class="stat-label">Ienākumi</span><div class="stat-value num pos">${money(sp.income)}</div></div>
+        <div class="link" data-act="showType" data-v="income"><span class="stat-label">Ienākumi ›</span><div class="stat-value num pos">${money(sp.income)}</div></div>
         <div><span class="stat-label">Ienākumi − izdevumi</span><div class="stat-value num ${sp.income - sp.total >= 0 ? 'pos' : 'neg'}">${signed(sp.income - sp.total)}</div></div>
       </div>
       <div class="card" style="margin:0;cursor:pointer" data-go="savings">
@@ -384,9 +384,15 @@ function transactions() {
   let list = ui.txMonth === 'month' ? monthTx(ui.month) : [...S.transactions];
   const q = ui.search.toLowerCase();
   if (q) list = list.filter(t => t.description.toLowerCase().includes(q) || String(t.amount).includes(q));
-  if (ui.filterCat === 'income' || ui.filterCat === 'transfer') list = list.filter(t => t.type === ui.filterCat);
-  else if (ui.filterCat) list = list.filter(t => t.categoryId === ui.filterCat);
   if (ui.filterAcc) list = list.filter(t => (t.source || 'manuāli') === ui.filterAcc);
+  // Tabs: all / expenses / income / transfers, each with its total for the current filters.
+  const byType = k => list.filter(t => t.type === k);
+  const tabs = [['', 'Visi', `${list.length}`], ['expense', 'Izdevumi', '−' + money(sum(byType('expense').map(t => t.amount)), { whole: true })],
+    ['income', 'Ienākumi', '+' + money(sum(byType('income').map(t => t.amount)), { whole: true })]];
+  if (byType('transfer').length || ui.txType === 'transfer') tabs.push(['transfer', 'Starp kontiem', money(sum(byType('transfer').map(t => t.amount)), { whole: true })]);
+  if (ui.txType) list = byType(ui.txType);
+  const catFilter = !ui.txType || ui.txType === 'expense';
+  if (ui.filterCat && catFilter) list = list.filter(t => t.categoryId === ui.filterCat);
   const accounts = [...new Set(S.transactions.map(t => t.source || 'manuāli'))].sort((a, b) => accLabel(a).localeCompare(accLabel(b)));
   list.sort((a, b) => b.date.localeCompare(a.date));
   const groups = {};
@@ -405,11 +411,13 @@ function transactions() {
     <div><b>Importēt izrakstu</b><div class="sub">Ievelc vai izvēlies XML (FiDAViSta, ISO 20022), PDF, CSV vai ekrānuzņēmumu. Var arī ielīmēt ar ⌘V. Claude sašķiros pa kategorijām.</div></div>
     <input type="file" id="fileIn" multiple accept=".xml,.pdf,.csv,.txt,image/*" hidden>
   </label>
+  <div class="type-tabs" role="tablist">${tabs.map(([k, label, total]) => `<button role="tab" data-act="txType" data-v="${k}" aria-selected="${ui.txType === k}"
+    class="${ui.txType === k ? 'on' : ''} ${k}"><span>${label}</span><b class="num">${total}</b></button>`).join('')}</div>
   <div class="card">
     <div class="toolbar">
       <input type="text" id="search" placeholder="Meklēt…" value="${esc(ui.search)}">
-      <select id="filterCat"><option value="">Visas kategorijas</option><option value="income" ${ui.filterCat === 'income' ? 'selected' : ''}>💰 Ienākumi</option><option value="transfer" ${ui.filterCat === 'transfer' ? 'selected' : ''}>🔁 Starp saviem kontiem</option>
-        ${S.categories.map(c => `<option value="${c.id}" ${ui.filterCat === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
+      ${catFilter ? `<select id="filterCat"><option value="">Visas kategorijas</option>
+        ${S.categories.map(c => `<option value="${c.id}" ${ui.filterCat === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>` : ''}
       <select id="filterAcc"><option value="">Visi konti</option>${accounts.map(a => `<option value="${esc(a)}" ${ui.filterAcc === a ? 'selected' : ''}>${esc(accLabel(a))}</option>`).join('')}</select>
       <div class="seg"><button data-act="txMonth" data-v="month" class="${ui.txMonth === 'month' ? 'on' : ''}">Mēnesis</button><button data-act="txMonth" data-v="all" class="${ui.txMonth === 'all' ? 'on' : ''}">Visi</button></div>
     </div>
@@ -1030,6 +1038,8 @@ document.addEventListener('click', async e => {
     case 'prevMonth': ui.month = shiftMonth(ui.month, -1); return render();
     case 'nextMonth': ui.month = shiftMonth(ui.month, 1); return render();
     case 'txMonth': ui.txMonth = el.dataset.v; return render();
+    case 'txType': ui.txType = el.dataset.v; return render();
+    case 'showType': ui.txType = el.dataset.v; ui.filterCat = ''; ui.txMonth = 'month'; return go('transactions');
     case 'addTx': return txForm({ type: 'expense', categoryId: S.categories[0]?.id });
     case 'voice': return voiceForm();
     case 'addCash': return txForm({ type: 'expense', categoryId: S.categories[0]?.id, source: CASH });

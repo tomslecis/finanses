@@ -234,6 +234,20 @@ textarea { width: 100%; box-sizing: border-box; border: 1px solid transparent; b
 textarea:focus { border-color: var(--accent); background: var(--card); }
 
 /* Transfers between own accounts: shown, but quiet (not counted) */
+/* Transactions: all / expenses / income / transfers */
+.type-tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 14px 0; }
+.type-tabs button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 16px; border-radius: 14px;
+  border: 1.5px solid transparent; background: var(--card); box-shadow: var(--shadow); cursor: pointer; font: inherit; color: inherit; text-align: left;
+  transition: border-color .15s, transform .12s ease-out; }
+.type-tabs button:active { transform: scale(.98); }
+.type-tabs span { font-size: 12px; color: var(--muted); font-weight: 500; }
+.type-tabs b { font-size: 18px; font-weight: 600; }
+.type-tabs .income b { color: var(--accent); }
+.type-tabs .transfer b { color: var(--muted); }
+.type-tabs button.on { border-color: var(--accent); }
+.link { cursor: pointer; border-radius: 10px; }
+.link:hover .stat-label { color: var(--accent); }
+
 /* Savings positions, grouped by asset type */
 #posTable { margin-top: 10px; }
 .pos-group { margin-top: 14px; }
