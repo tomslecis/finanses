@@ -40,6 +40,7 @@ window.MockAPI = (() => {
         { id: 'p2', name: 'Drošības spilvens', assetType: 'Krājkonts', place: 'Banka' },
         { id: 'p3', name: 'ETF portfelis', assetType: 'Akcijas / ETF', place: 'Brokeris' },
         { id: 'p4', name: 'Kripto', assetType: 'Kripto', place: 'Birža' },
+        { id: 'p5', name: 'Zelts (26g)', assetType: 'Dārgmetāli', place: '' },
       ],
       snapshots: {
         [ym(-3)]: { p1: 900, p2: 8000, p3: 6200, p4: 900 },

@@ -234,6 +234,8 @@ textarea { width: 100%; box-sizing: border-box; border: 1px solid transparent; b
 textarea:focus { border-color: var(--accent); background: var(--card); }
 
 /* Transfers between own accounts: shown, but quiet (not counted) */
+.metal { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 4px; font-size: 11px; white-space: nowrap; }
+.metal .btn { padding: 2px 8px; font-size: 11px; }
 .tx.transfer .amt, .tx.transfer .desc b { color: var(--muted); font-weight: 500; }
 
 /* Voice entry */

@@ -714,7 +714,18 @@ function emojiPicker(catId) {
 // ---------- Savings ----------
 const TYPE_COLORS = ['#34C759', '#007AFF', '#FF9500', '#AF52DE', '#5AC8FA', '#FF2D55', '#A2845E', '#8E8E93'];
 
+// Precious metals: "Dārgmetāli" position with grams in its name, valued by the server at today's price (Prices.gs).
+const isMetal = p => p.assetType === 'Dārgmetāli' && /\d+(?:[.,]\d+)?\s*g\b/i.test(p.name);
+let METAL = null; // { positionId: { grams, perGram, value, at } }
+function loadMetal() {
+  if (METAL || !S.savings.positions.some(isMetal)) return;
+  if (PREVIEW) { METAL = { p5: { grams: 26, perGram: 103.17, value: 2682.42, at: new Date().toISOString() } }; return; }
+  METAL = {};
+  call('metalPrices').then(r => { METAL = r.result; if (ui.view === 'savings') render(); }).catch(() => { METAL = null; });
+}
+
 function savings() {
+  loadMetal();
   const m = ui.month;
   const snap = S.savings.snapshots[m] || {};
   const prevM = prevSnapMonth(m);
@@ -759,7 +770,7 @@ function savings() {
           <td><select class="pt">${S.savings.assetTypes.map(t => `<option ${t === p.assetType ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></td>
           <td><input type="text" class="pp" value="${esc(p.place)}" placeholder="piem. Swedbank"></td>
           <td class="r num sub">${pv != null ? money(pv) : '—'}</td>
-          <td><input type="number" class="pv" step="0.01" value="${v ?? ''}" placeholder="0,00"></td>
+          <td><input type="number" class="pv" step="0.01" value="${v ?? ''}" placeholder="0,00">${METAL?.[p.id] ? `<div class="metal sub"><span>${String(METAL[p.id].grams).replace('.', ',')} g × ${money(METAL[p.id].perGram)}</span><button class="btn ghost" data-metal="${p.id}" title="Ielikt vērtību pēc šodienas cenas">= ${money(METAL[p.id].value, { whole: true })}</button></div>` : ''}</td>
           <td class="r num ${d > 0 ? 'pos' : d < 0 ? 'neg' : ''}">${d != null ? signed(d) : ''}</td>
           <td><button class="icon-btn" data-delpos="${p.id}" title="Dzēst">×</button></td></tr>`;
       }).join('')}</tbody></table>`
@@ -957,7 +968,7 @@ function settings() {
 
 // ---------- Events ----------
 document.addEventListener('click', async e => {
-  const el = e.target.closest('[data-act],[data-go],[data-tx],[data-close],[data-del],[data-delcat],[data-delpos],[data-emoji],[data-bankpick],[data-bankrenew],[data-bankdel]');
+  const el = e.target.closest('[data-act],[data-go],[data-tx],[data-close],[data-del],[data-delcat],[data-delpos],[data-metal],[data-emoji],[data-bankpick],[data-bankrenew],[data-bankdel]');
   if (!el) return;
   if (el.dataset.go) return go(el.dataset.go);
   if (el.dataset.tx) return txForm(S.transactions.find(t => t.id === el.dataset.tx));
@@ -981,6 +992,10 @@ document.addEventListener('click', async e => {
     if (!confirmInline(el)) return;
     return mutate('PUT', '/api/savings/positions', { positions: collectPositions().filter(p => p.id !== el.dataset.delpos) }, 'Pozīcija dzēsta');
   }
+  if (el.dataset.metal) {
+    const x = METAL[el.dataset.metal];
+    return mutate('PUT', '/api/savings/snapshot', { month: ui.month, values: { ...collectValues(), [el.dataset.metal]: x.value } }, `Zelts pēc šodienas cenas: ${money(x.perGram)}/g`);
+  }
   switch (el.dataset.act) {
     case 'prevMonth': ui.month = shiftMonth(ui.month, -1); return render();
     case 'nextMonth': ui.month = shiftMonth(ui.month, 1); return render();
@@ -991,7 +1006,9 @@ document.addEventListener('click', async e => {
     case 'addCat': return saveBudget({ categories: [...collectCats(), { name: 'Jauna kategorija', icon: '🏷️', color: '#8E8E93', limit: 0 }] });
     case 'addPos': return mutate('PUT', '/api/savings/positions', { positions: [...collectPositions(), { name: 'Jauna pozīcija', assetType: S.savings.assetTypes[0], place: '' }] });
     case 'copyPrev': {
-      const prev = S.savings.snapshots[prevSnapMonth(ui.month)] || {};
+      // Metals are not copied: the server values them at today's price.
+      const prev = { ...(S.savings.snapshots[prevSnapMonth(ui.month)] || {}) };
+      S.savings.positions.filter(isMetal).forEach(p => delete prev[p.id]);
       return mutate('PUT', '/api/savings/snapshot', { month: ui.month, values: { ...prev, ...(S.savings.snapshots[ui.month] || {}) } }, 'Vērtības nokopētas, atjauno tās, kas mainījās');
     }
     case 'migrate': {
