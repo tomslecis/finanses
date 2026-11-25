@@ -234,8 +234,39 @@ textarea { width: 100%; box-sizing: border-box; border: 1px solid transparent; b
 textarea:focus { border-color: var(--accent); background: var(--card); }
 
 /* Transfers between own accounts: shown, but quiet (not counted) */
-.metal { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 4px; font-size: 11px; white-space: nowrap; }
-.metal .btn { padding: 2px 8px; font-size: 11px; }
+/* Savings positions, grouped by asset type */
+#posTable { margin-top: 10px; }
+.pos-group { margin-top: 14px; }
+.pos-group header { display: flex; align-items: center; gap: 8px; padding: 8px 4px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.pos-group header .dot { width: 8px; height: 8px; border-radius: 50%; }
+.pos-group header .share { min-width: 38px; text-align: right; color: var(--muted); font-size: 12px; }
+.pos-row { display: grid; grid-template-columns: 36px minmax(0, 1fr) 96px 150px 104px 24px; gap: 12px; align-items: center;
+  padding: 8px 4px; border-bottom: 1px solid var(--line); transition: background .15s; }
+.pos-row:last-child { border-bottom: 0; }
+.pos-row:hover { background: color-mix(in srgb, var(--fill) 40%, transparent); border-radius: 12px; }
+.pos-row.quiet { opacity: .5; }
+.pos-row.quiet:hover, .pos-row.quiet:focus-within { opacity: 1; }
+.pos-main { min-width: 0; }
+.pos-meta { display: flex; align-items: center; gap: 2px; min-width: 0; }
+input.bare, select.bare { background: transparent; border-color: transparent; padding: 3px 6px; margin-left: -6px; border-radius: 7px; }
+input.bare:hover, select.bare:hover { background: var(--fill); }
+input.bare:focus, select.bare:focus { background: var(--card); border-color: var(--accent); }
+.pn.bare { font-weight: 600; font-size: 15px; width: 100%; }
+.pos-meta .bare { font-size: 12px; color: var(--muted); }
+.pos-meta .pp { width: 110px; max-width: 220px; }
+@supports (field-sizing: content) { .pos-meta .pp { width: auto; field-sizing: content; min-width: 2ch; } }
+.pos-meta select.bare { -webkit-appearance: none; appearance: none; width: auto; field-sizing: content; margin-left: 0; cursor: pointer; }
+.pos-prev { text-align: right; color: var(--muted); font-size: 13px; line-height: 1.25; }
+.pos-prev small { display: block; font-size: 11px; }
+.pos-val { display: flex; flex-direction: column; align-items: flex-end; }
+.pv.bare { width: 100%; text-align: right; font-size: 17px; font-weight: 600; margin: 0; background: var(--fill); padding: 6px 10px; }
+.pv.bare:hover { background: color-mix(in srgb, var(--fill) 160%, transparent); }
+.pos-delta { text-align: right; }
+.pos-del { opacity: 0; transition: opacity .15s; }
+.pos-row:hover .pos-del, .pos-del:focus-visible { opacity: 1; }
+.metal { border: 0; background: none; cursor: pointer; padding: 3px 2px 0; font: inherit; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.metal b { color: var(--accent); }
+.metal:hover b { text-decoration: underline; }
 .tx.transfer .amt, .tx.transfer .desc b { color: var(--muted); font-weight: 500; }
 
 /* Voice entry */
@@ -350,6 +381,12 @@ textarea:focus { border-color: var(--accent); background: var(--card); }
   #catTable td:nth-child(3) { grid-area: lim; display: flex; align-items: center; gap: 8px; }
   #catTable td:nth-child(3)::before { content: "Limits €"; color: var(--muted); font-size: 13px; white-space: nowrap; }
   #catTable td:nth-child(4) { grid-area: spent; } #catTable td:nth-child(5) { grid-area: pct; } #catTable td:nth-child(6) { grid-area: del; }
+  .pos-row { grid-template-columns: 36px minmax(0, 1fr) auto 28px; grid-template-areas: "icon main main del" "icon prev val val" "icon delta val val"; gap: 4px 10px; padding: 12px 2px; }
+  .pos-delta { text-align: left; } .pos-meta .bare { font-size: 13px; }
+  .pos-row > .emoji { grid-area: icon; align-self: start; } .pos-main { grid-area: main; } .pos-del { grid-area: del; opacity: 1; }
+  .pos-prev { grid-area: prev; text-align: left; align-self: center; } .pos-val { grid-area: val; } .pos-delta { grid-area: delta; }
+  .pv.bare { width: 140px; }
+  .pos-row:hover { background: none; }
   #posTable tr { grid-template-columns: 1fr 1fr auto; grid-template-areas: "name name del" "type place place" "prev val delta"; }
   #posTable td:nth-child(1) { grid-area: name; } #posTable td:nth-child(2) { grid-area: type; } #posTable td:nth-child(3) { grid-area: place; }
   #posTable td:nth-child(4) { grid-area: prev; text-align: left; } #posTable td:nth-child(4)::before { content: "Iepriekš "; }

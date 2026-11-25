@@ -762,18 +762,7 @@ function savings() {
     <div class="row" style="flex-wrap:wrap"><h2 style="margin:0">Pozīcijas · ${monthName(m)}${S.savings.snapshotDates?.[m] ? ` <span class="sub">(ievadīts ${S.savings.snapshotDates[m].split('-').reverse().join('.')})</span>` : ''}</h2><span class="spacer"></span>
       ${prevM ? `<button class="btn" data-act="copyPrev">Kopēt no ${monthShort(prevM)}</button>` : ''}
       <button class="btn" data-act="addPos">+ Pozīcija</button></div>
-    ${pos.length ? `<table id="posTable" style="margin-top:14px"><thead><tr><th>Pozīcija</th><th style="width:170px">Aktīva veids</th><th style="width:160px">Kur</th>
-      <th class="r" style="width:120px">${prevM ? monthShort(prevM) : 'Iepriekš'}</th><th class="r" style="width:150px">Vērtība (€)</th><th class="r" style="width:110px">Izmaiņa</th><th style="width:36px"></th></tr></thead>
-      <tbody>${pos.map(p => {
-        const v = snap[p.id], pv = prev?.[p.id]; const d = v != null && pv != null ? v - pv : null;
-        return `<tr data-id="${p.id}"><td><input type="text" class="pn" value="${esc(p.name)}"></td>
-          <td><select class="pt">${S.savings.assetTypes.map(t => `<option ${t === p.assetType ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></td>
-          <td><input type="text" class="pp" value="${esc(p.place)}" placeholder="piem. Swedbank"></td>
-          <td class="r num sub">${pv != null ? money(pv) : '—'}</td>
-          <td><input type="number" class="pv" step="0.01" value="${v ?? ''}" placeholder="0,00">${METAL?.[p.id] ? `<div class="metal sub"><span>${String(METAL[p.id].grams).replace('.', ',')} g × ${money(METAL[p.id].perGram)}</span><button class="btn ghost" data-metal="${p.id}" title="Ielikt vērtību pēc šodienas cenas">= ${money(METAL[p.id].value, { whole: true })}</button></div>` : ''}</td>
-          <td class="r num ${d > 0 ? 'pos' : d < 0 ? 'neg' : ''}">${d != null ? signed(d) : ''}</td>
-          <td><button class="icon-btn" data-delpos="${p.id}" title="Dzēst">×</button></td></tr>`;
-      }).join('')}</tbody></table>`
+    ${pos.length ? posGroups(pos, snap, prev, prevM, total, typeColor)
       : `<div class="empty"><b>Vēl nav pozīciju</b>Pievieno, kur glabā naudu: krājkonts, ETF, kripto, pensija…</div>`}
   </div>
   ${Object.keys(byType).length ? `<div class="card"><h2>Sadalījums</h2>
@@ -800,12 +789,53 @@ function verdict(m, total, prevTotal) {
   return lines.join('') || '<div class="sub" style="margin-top:6px">Ievadi uzkrājumus vismaz 2 mēnešiem, lai redzētu salīdzinājumu.</div>';
 }
 
+// Positions grouped by asset type: header with subtotal and share, then one row per position.
+const TYPE_ICONS = { 'Nauda': '💶', 'Krājkonts': '🏦', 'Akcijas / ETF': '📈', 'P2P aizdevumi': '🤝', 'Kripto': '🪙', 'Dārgmetāli': '🥇',
+  'Pensija': '🌅', 'Nekustamais īpašums': '🏠', 'Cits': '📦' };
+const signedWhole = n => (n > 0 ? '+' : n < 0 ? '−' : '') + money(Math.abs(n), { whole: true });
+
+function posGroups(pos, snap, prev, prevM, total, typeColor) {
+  const types = [...new Set(pos.map(p => p.assetType))].sort((a, b) => S.savings.assetTypes.indexOf(a) - S.savings.assetTypes.indexOf(b));
+  return `<div id="posTable">${types.map(type => {
+    const list = pos.filter(p => p.assetType === type);
+    const sub = sum(list.map(p => snap[p.id] || 0)), subPrev = prev ? sum(list.map(p => prev[p.id] || 0)) : null;
+    const color = typeColor(type);
+    return `<section class="pos-group">
+      <header><span class="dot" style="background:${color}"></span><b>${esc(type)}</b><span class="sub">${list.length}</span><span class="spacer"></span>
+        ${subPrev != null && sub !== subPrev ? `<span class="sub num">${signedWhole(sub - subPrev)}</span>` : ''}
+        <b class="num">${money(sub, { whole: true })}</b>${total ? `<span class="share num">${Math.round((sub / total) * 100)}%</span>` : ''}</header>
+      ${list.map(p => posRow(p, snap[p.id], prev?.[p.id], prevM, color)).join('')}
+    </section>`;
+  }).join('')}</div>`;
+}
+
+function posRow(p, v, pv, prevM, color) {
+  const d = v != null && pv != null ? v - pv : null;
+  const quiet = !v && !pv;
+  const metal = METAL?.[p.id];
+  return `<div class="pos-row ${quiet ? 'quiet' : ''}" data-id="${p.id}">
+    <span class="emoji lg" style="background:color-mix(in srgb, ${color} 16%, transparent)">${TYPE_ICONS[p.assetType] || '💼'}</span>
+    <div class="pos-main">
+      <input type="text" class="pn bare" value="${esc(p.name)}" aria-label="Nosaukums">
+      <div class="pos-meta"><input type="text" class="pp bare" value="${esc(p.place)}" placeholder="Kur glabājas?" aria-label="Kur"><span class="sub">·</span>
+        <select class="pt bare" aria-label="Aktīva veids">${S.savings.assetTypes.map(t => `<option ${t === p.assetType ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></div>
+    </div>
+    <div class="pos-prev num">${pv != null ? `<small>${prevM ? monthShort(prevM) : 'iepriekš'}</small>${money(pv, { whole: true })}` : ''}</div>
+    <div class="pos-val">
+      <input type="number" class="pv bare num" step="0.01" value="${v ?? ''}" placeholder="—" aria-label="Vērtība eiro">
+      ${metal ? `<button class="metal" data-metal="${p.id}" title="Ielikt vērtību pēc šodienas cenas">${String(metal.grams).replace('.', ',')} g × ${money(metal.perGram)} = <b>${money(metal.value, { whole: true })}</b></button>` : ''}
+    </div>
+    <div class="pos-delta">${d ? `<span class="pill ${d > 0 ? 'pos' : 'neg'} num">${signedWhole(d)}</span>` : d === 0 ? '<span class="sub">—</span>' : ''}</div>
+    <button class="icon-btn pos-del" data-delpos="${p.id}" title="Dzēst" aria-label="Dzēst pozīciju">×</button>
+  </div>`;
+}
+
 function collectPositions() {
-  return $$('#posTable tbody tr').map(tr => ({ id: tr.dataset.id, name: $('.pn', tr).value, assetType: $('.pt', tr).value, place: $('.pp', tr).value }));
+  return $$('#posTable [data-id]').map(tr => ({ id: tr.dataset.id, name: $('.pn', tr).value, assetType: $('.pt', tr).value, place: $('.pp', tr).value }));
 }
 function collectValues() {
   const v = { ...(S.savings.snapshots[ui.month] || {}) };
-  $$('#posTable tbody tr').forEach(tr => { const x = $('.pv', tr).value; if (x === '') delete v[tr.dataset.id]; else v[tr.dataset.id] = x; });
+  $$('#posTable [data-id]').forEach(tr => { const x = $('.pv', tr).value; if (x === '') delete v[tr.dataset.id]; else v[tr.dataset.id] = x; });
   return v;
 }
 
