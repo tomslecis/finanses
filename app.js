@@ -58,19 +58,116 @@ async function call(fn, args = {}) {
     }
     if (data.auth) { localStorage.removeItem(TOKEN_KEY); showLogin(); throw new Error(data.error); }
     if (!data.ok) throw new Error(data.error || 'Kļūda');
-    if (data.state) S = data.state;
+    // While optimistic changes are still being saved, the local state is newer than the server's.
+    if (data.state && !saving) S = data.state;
     return data;
   } finally { setBusy(false); }
 }
 
 async function refresh() { S = await api('GET', '/api/state'); render(); }
+// Changes show at once (applied locally), then are saved to Google Sheets in the background, one at a time.
+// When the last save finishes, the server's state replaces the local one (re-rendered only if it differs).
+let saving = 0, saveQueue = Promise.resolve(), saveFailed = false, deferredRender = false;
 async function mutate(method, url, body, msg) {
-  try {
-    await api(method, url, body);
-    if (PREVIEW) S = window.MockAPI.handle('GET', '/api/state');
-    render();
-    if (msg) toast(msg);
-  } catch (e) { toast(e.message); }
+  if (PREVIEW) {
+    try { await api(method, url, body); S = window.MockAPI.handle('GET', '/api/state'); render(); if (msg) toast(msg); } catch (e) { toast(e.message); }
+    return;
+  }
+  let local = null;
+  try { local = applyLocal(structuredClone(S), method, url, body); } catch (e) { return toast(e.message); }
+  if (!local) { // no local version of this change: wait for the server
+    try { await api(method, url, body); render(); if (msg) toast(msg); } catch (e) { toast(e.message); }
+    return;
+  }
+  // Render on the next tick, after focus has moved to the field the user tapped or tabbed to.
+  S = local; setTimeout(render, 0); if (msg) toast(msg);
+  saving++;
+  saveQueue = saveQueue.then(async () => {
+    let server = null;
+    try { server = (await callFor(method, url, body)).state; }
+    catch (e) { saveFailed = true; toast('Neizdevās saglabāt: ' + e.message); }
+    if (--saving) return;
+    if (saveFailed) { saveFailed = false; server = (await call('state').catch(() => null))?.result; }
+    if (server && stateKey(server) !== stateKey(S)) {
+      S = server;
+      // Don't re-render under the user's fingers; wait until they leave the field.
+      if (document.activeElement?.closest('#view') && document.activeElement.matches('input, select')) deferredRender = true; else render();
+    }
+  });
+}
+document.addEventListener('focusout', () => setTimeout(() => {
+  if (deferredRender && !document.activeElement?.matches('#view input, #view select')) { deferredRender = false; render(); }
+}, 0));
+
+async function callFor(method, url, body) {
+  for (const [m, re, fn] of ROUTES) {
+    const hit = m === method && url.match(re);
+    if (hit) return call(fn, hit[1] ? { ...(body || {}), id: decodeURIComponent(hit[1]) } : body || {});
+  }
+  throw new Error('Nezināma darbība');
+}
+// Comparable form of the state: what is shown on screen, independent of key order.
+const stableStr = v => (v && typeof v === 'object' ? (Array.isArray(v) ? '[' + v.map(stableStr).join(',') + ']'
+  : '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stableStr(v[k])).join(',') + '}') : JSON.stringify(v ?? null));
+const stateKey = s => stableStr([s.settings, s.categories, s.savings, [...s.transactions].sort((a, b) => (a.id < b.id ? -1 : 1))
+  .map(t => [t.id, t.date, t.description, t.amount, t.type, t.categoryId || null, t.source || ''])]);
+
+// Local copy of the server's changes (apps-script/Api.gs), so the screen updates without waiting.
+// Gives new items their id here; the server keeps it. Returns null for changes it can't mirror.
+const round2 = n => Math.round((Number(n) || 0) * 100) / 100;
+const newId = () => Math.random().toString(36).slice(2, 10);
+function applyLocal(st, method, url, b = {}) {
+  const [, , res, rawId] = url.split('/');
+  const id = rawId && decodeURIComponent(rawId);
+  const cleanTx = t => {
+    const income = t.type === 'income';
+    return { ...t, date: String(t.date || '').slice(0, 10), description: String(t.description || '').trim().slice(0, 200) || 'Darījums',
+      amount: Math.abs(round2(t.amount)), type: income ? 'income' : 'expense', categoryId: income ? null : t.categoryId || null,
+      source: t.source || 'manuāli', note: t.note || '' };
+  };
+  switch (method + ' ' + res + (res === 'savings' ? '/' + id : '')) {
+    case 'POST transactions':
+      (Array.isArray(b.transactions) ? b.transactions : [b]).forEach(t => { t.id = newId(); st.transactions.push(cleanTx(t)); });
+      return st;
+    case 'PUT transactions': {
+      const tx = st.transactions.find(t => t.id === id);
+      if (!tx) throw new Error('Darījums nav atrasts');
+      Object.assign(tx, cleanTx({ ...tx, ...b, id }));
+      return st;
+    }
+    case 'DELETE transactions':
+      st.transactions = st.transactions.filter(t => t.id !== id);
+      return st;
+    case 'PUT budget':
+      if (b.totalLimit != null) st.settings.totalLimit = Math.max(0, round2(b.totalLimit));
+      if (Array.isArray(b.categories)) {
+        if (!b.categories.length && st.categories.length > 1) throw new Error('Nevar izdzēst visas kategorijas');
+        st.categories = b.categories.map(c => ({
+          id: c.id || (c.id = newId()), name: String(c.name || 'Kategorija').slice(0, 60), icon: String(c.icon || '🏷️').slice(0, 16),
+          color: /^#[0-9a-f]{6}$/i.test(c.color) ? c.color : '#8E8E93', limit: Math.max(0, round2(c.limit)),
+        }));
+        const ids = new Set(st.categories.map(c => c.id));
+        const other = st.categories.find(c => c.name === 'Citi') || st.categories[0];
+        st.transactions.forEach(t => { if (t.categoryId && !ids.has(t.categoryId)) t.categoryId = other ? other.id : null; });
+      }
+      return st;
+    case 'PUT savings/positions':
+      st.savings.positions = (b.positions || []).map(p => ({ id: p.id || (p.id = newId()), name: String(p.name || 'Pozīcija').slice(0, 80),
+        assetType: String(p.assetType || 'Cits').slice(0, 40), place: String(p.place || '').slice(0, 80) }));
+      if (Array.isArray(b.assetTypes)) st.savings.assetTypes = b.assetTypes.map(String).filter(Boolean);
+      return st;
+    case 'PUT savings/snapshot': {
+      const values = {};
+      Object.entries(b.values || {}).forEach(([k, v]) => { if (v !== '' && v != null && !isNaN(v)) values[k] = round2(v); });
+      if (Object.keys(values).length) {
+        st.savings.snapshots[b.month] = values;
+        const today = new Date().toISOString().slice(0, 10);
+        st.savings.snapshotDates[b.month] ||= today.startsWith(b.month) ? today : b.month + '-01';
+      } else { delete st.savings.snapshots[b.month]; delete st.savings.snapshotDates[b.month]; }
+      return st;
+    }
+  }
+  return null;
 }
 
 let busyCount = 0;
@@ -155,11 +252,27 @@ function render() {
   if (!S) return;
   $$('#nav a').forEach(a => a.classList.toggle('active', a.dataset.view === ui.view));
   const views = { overview, transactions, budget, savings, settings };
+  const focus = focusKey();
   $('#view').innerHTML = (views[ui.view] || overview)();
+  restoreFocus(focus);
   $('#topTitle').textContent = VIEW_TITLES[ui.view] || VIEW_TITLES.overview;
   $('#topAct').innerHTML = ['overview', 'transactions'].includes(ui.view) || !VIEW_TITLES[ui.view]
     ? '<button class="top-add" data-act="addTx" aria-label="Pievienot darījumu">+</button>' : '';
   renderSync();
+}
+
+// Keep the field the user moved to (tap or Tab) focused across a re-render.
+function focusKey() {
+  const a = document.activeElement;
+  if (!a || !a.closest('#view') || !a.matches('input, select, button')) return null;
+  return { id: a.id, row: a.closest('[data-id]')?.dataset.id, cls: a.classList[0], pos: a.selectionStart ?? null };
+}
+function restoreFocus(k) {
+  if (!k) return;
+  const el = k.id ? document.getElementById(k.id) : k.row && k.cls ? $(`#view [data-id="${CSS.escape(k.row)}"] .${CSS.escape(k.cls)}`) : null;
+  if (!el) return;
+  el.focus({ preventScroll: true });
+  try { if (k.pos != null) el.setSelectionRange(k.pos, k.pos); } catch (e) {}
 }
 
 function renderSync() {
