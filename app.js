@@ -8,7 +8,7 @@ let S = null; // server state
 const ui = {
   view: location.hash.slice(1) || 'overview',
   month: new Date().toISOString().slice(0, 7),
-  search: '', filterCat: '', txMonth: 'month',
+  search: '', filterCat: '', filterAcc: '', txMonth: 'month',
 };
 
 // ---------- API ----------
@@ -31,6 +31,7 @@ const ROUTES = [
   ['PUT', /^\/api\/savings\/positions$/, 'positions'],
   ['PUT', /^\/api\/savings\/snapshot$/, 'snapshot'],
   ['PUT', /^\/api\/settings$/, 'settings'],
+  ['POST', /^\/api\/voice$/, 'voice'],
 ];
 
 async function api(method, url, body) {
@@ -120,9 +121,9 @@ function applyLocal(st, method, url, b = {}) {
   const [, , res, rawId] = url.split('/');
   const id = rawId && decodeURIComponent(rawId);
   const cleanTx = t => {
-    const income = t.type === 'income';
+    const type = t.type === 'income' || t.type === 'transfer' ? t.type : 'expense';
     return { ...t, date: String(t.date || '').slice(0, 10), description: String(t.description || '').trim().slice(0, 200) || 'Darījums',
-      amount: Math.abs(round2(t.amount)), type: income ? 'income' : 'expense', categoryId: income ? null : t.categoryId || null,
+      amount: Math.abs(round2(t.amount)), type, categoryId: type === 'expense' ? t.categoryId || null : null,
       source: t.source || 'manuāli', note: t.note || '' };
   };
   switch (method + ' ' + res + (res === 'savings' ? '/' + id : '')) {
@@ -223,9 +224,10 @@ function toast(msg) {
 }
 
 // ---------- Derived data ----------
+// Transfers between own accounts (type 'transfer') count as neither income nor spending.
 const monthTx = m => S.transactions.filter(t => t.date.startsWith(m));
 function spending(m) {
-  const txs = monthTx(m).filter(t => t.type !== 'income');
+  const txs = monthTx(m).filter(t => t.type === 'expense');
   const byCat = {};
   txs.forEach(t => (byCat[t.categoryId] = (byCat[t.categoryId] || 0) + t.amount));
   return { total: sum(txs.map(t => t.amount)), byCat, income: sum(monthTx(m).filter(t => t.type === 'income').map(t => t.amount)) };
@@ -257,7 +259,7 @@ function render() {
   restoreFocus(focus);
   $('#topTitle').textContent = VIEW_TITLES[ui.view] || VIEW_TITLES.overview;
   $('#topAct').innerHTML = ['overview', 'transactions'].includes(ui.view) || !VIEW_TITLES[ui.view]
-    ? '<button class="top-add" data-act="addTx" aria-label="Pievienot darījumu">+</button>' : '';
+    ? '<button class="top-add" data-act="voice" aria-label="Pateikt ar balsi"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button><button class="top-add" data-act="addTx" aria-label="Pievienot darījumu">+</button>' : '';
   renderSync();
 }
 
@@ -357,12 +359,19 @@ function catRow(c) {
 // Emoji tile on a soft tint of the category color.
 const emo = (c, size = '') => `<span class="emoji ${size}" style="background:color-mix(in srgb, ${c.color} 16%, transparent)">${esc(c.icon || '🏷️')}</span>`;
 
+const TRANSFER = { icon: '🔁', color: '#8E8E93' };
+// Where a transaction came from: bank account, cash or typed in by hand.
+const accLabel = s => (s === CASH ? '💶 Skaidra nauda' : !s || s === 'manuāli' ? 'Ievadīts ar roku' : s);
+
 function txRow(t) {
   const c = cat(t.categoryId);
-  return `<div class="tx" data-tx="${t.id}">
-    ${t.type === 'income' ? emo({ icon: '💰', color: '#34C759' }, 'lg') : emo(c || { icon: '🏷️', color: '#8E8E93' }, 'lg')}
-    <div class="desc"><b>${esc(t.description)}</b><small>${t.type === 'income' ? 'Ienākumi' : esc(c?.name || 'Bez kategorijas')} · ${new Date(t.date).toLocaleDateString('lv-LV', { day: 'numeric', month: 'short' })}${t.source === CASH ? ' · 💶 skaidrā naudā' : ''}</small></div>
-    <div class="amt num ${t.type === 'income' ? 'pos' : ''}">${t.type === 'income' ? '+' : '−'}${money(t.amount)}</div>
+  const icon = t.type === 'income' ? emo({ icon: '💰', color: '#34C759' }, 'lg') : t.type === 'transfer' ? emo(TRANSFER, 'lg') : emo(c || { icon: '🏷️', color: '#8E8E93' }, 'lg');
+  const what = t.type === 'income' ? 'Ienākumi' : t.type === 'transfer' ? 'Starp saviem kontiem' : esc(c?.name || 'Bez kategorijas');
+  const sign = t.type === 'income' ? '+' : t.type === 'transfer' ? '' : '−';
+  return `<div class="tx ${t.type === 'transfer' ? 'transfer' : ''}" data-tx="${t.id}">
+    ${icon}
+    <div class="desc"><b>${esc(t.description)}</b><small>${what} · ${new Date(t.date).toLocaleDateString('lv-LV', { day: 'numeric', month: 'short' })}${t.source && t.source !== 'manuāli' ? ' · ' + esc(accLabel(t.source)) : ''}</small></div>
+    <div class="amt num ${t.type === 'income' ? 'pos' : ''}">${sign}${money(t.amount)}</div>
   </div>`;
 }
 
@@ -375,19 +384,22 @@ function transactions() {
   let list = ui.txMonth === 'month' ? monthTx(ui.month) : [...S.transactions];
   const q = ui.search.toLowerCase();
   if (q) list = list.filter(t => t.description.toLowerCase().includes(q) || String(t.amount).includes(q));
-  if (ui.filterCat === 'income') list = list.filter(t => t.type === 'income');
-  else if (ui.filterCat === 'cash') list = list.filter(t => t.source === CASH);
+  if (ui.filterCat === 'income' || ui.filterCat === 'transfer') list = list.filter(t => t.type === ui.filterCat);
   else if (ui.filterCat) list = list.filter(t => t.categoryId === ui.filterCat);
+  if (ui.filterAcc) list = list.filter(t => (t.source || 'manuāli') === ui.filterAcc);
+  const accounts = [...new Set(S.transactions.map(t => t.source || 'manuāli'))].sort((a, b) => accLabel(a).localeCompare(accLabel(b)));
   list.sort((a, b) => b.date.localeCompare(a.date));
   const groups = {};
   list.forEach(t => (groups[t.date] = groups[t.date] || []).push(t));
-  const exp = sum(list.filter(t => t.type !== 'income').map(t => t.amount));
+  const exp = sum(list.filter(t => t.type === 'expense').map(t => t.amount));
+  const inc = sum(list.filter(t => t.type === 'income').map(t => t.amount));
+  const moved = list.filter(t => t.type === 'transfer');
   const cash = list.filter(t => t.source === CASH);
-  const cashNet = sum(cash.map(t => (t.type === 'income' ? t.amount : -t.amount)));
+  const cashNet = sum(cash.map(t => (t.type === 'income' ? t.amount : t.type === 'expense' ? -t.amount : 0)));
 
   return `
   <div class="head"><h1>Darījumi</h1>
-    <div class="row">${ui.txMonth === 'month' ? monthSwitch() : ''}<button class="btn" data-act="addCash">💶 Skaidra nauda</button><button class="btn primary" data-act="addTx">+ Pievienot</button></div></div>
+    <div class="row">${ui.txMonth === 'month' ? monthSwitch() : ''}<button class="btn" data-act="voice">🎤 Pateikt</button><button class="btn" data-act="addCash">💶 Skaidra nauda</button><button class="btn primary" data-act="addTx">+ Pievienot</button></div></div>
   <label class="dropzone" id="dz">
     <div class="ico">⤓</div>
     <div><b>Importēt izrakstu</b><div class="sub">Ievelc vai izvēlies XML (FiDAViSta, ISO 20022), PDF, CSV vai ekrānuzņēmumu. Var arī ielīmēt ar ⌘V. Claude sašķiros pa kategorijām.</div></div>
@@ -396,11 +408,12 @@ function transactions() {
   <div class="card">
     <div class="toolbar">
       <input type="text" id="search" placeholder="Meklēt…" value="${esc(ui.search)}">
-      <select id="filterCat"><option value="">Visas kategorijas</option><option value="income" ${ui.filterCat === 'income' ? 'selected' : ''}>Ienākumi</option><option value="cash" ${ui.filterCat === 'cash' ? 'selected' : ''}>💶 Skaidra nauda</option>
+      <select id="filterCat"><option value="">Visas kategorijas</option><option value="income" ${ui.filterCat === 'income' ? 'selected' : ''}>💰 Ienākumi</option><option value="transfer" ${ui.filterCat === 'transfer' ? 'selected' : ''}>🔁 Starp saviem kontiem</option>
         ${S.categories.map(c => `<option value="${c.id}" ${ui.filterCat === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
+      <select id="filterAcc"><option value="">Visi konti</option>${accounts.map(a => `<option value="${esc(a)}" ${ui.filterAcc === a ? 'selected' : ''}>${esc(accLabel(a))}</option>`).join('')}</select>
       <div class="seg"><button data-act="txMonth" data-v="month" class="${ui.txMonth === 'month' ? 'on' : ''}">Mēnesis</button><button data-act="txMonth" data-v="all" class="${ui.txMonth === 'all' ? 'on' : ''}">Visi</button></div>
     </div>
-    <div class="sub">${list.length} darījumi · izdevumi ${money(exp)}${cash.length ? ` · skaidrā naudā ${signed(cashNet)}` : ''}</div>
+    <div class="sub">${list.length} darījumi · izdevumi ${money(exp)}${inc ? ` · ienākumi ${money(inc)}` : ''}${cash.length ? ` · skaidrā naudā ${signed(cashNet)}` : ''}${moved.length ? ` · ${moved.length} pārskaitījumi starp kontiem netiek skaitīti` : ''}</div>
     ${list.length ? Object.entries(groups).map(([d, txs]) => `<div class="day">${dayName(d)}</div>${txs.map(txRow).join('')}`).join('')
       : `<div class="empty"><b>Nav darījumu</b>Importē izrakstu vai pievieno darījumu ar roku.</div>`}
   </div>`;
@@ -422,32 +435,139 @@ function txForm(t) {
   // Payment method only for hand-entered transactions; bank and statement ones keep their source.
   const manual = isNew || !t.source || t.source === 'manuāli' || t.source === CASH;
   let source = t.source === CASH ? CASH : 'manuāli';
+  const party = isNew ? '' : partyOf(t.description);
   openModal(`<h2>${isNew ? (source === CASH ? 'Skaidra nauda' : 'Jauns darījums') : 'Labot darījumu'}</h2>
   <form class="form" id="txForm">
     <div class="row" style="flex-wrap:wrap;gap:10px">
-      <div class="seg"><button type="button" data-type="expense" class="${t.type !== 'income' ? 'on' : ''}">Izdevumi</button><button type="button" data-type="income" class="${t.type === 'income' ? 'on' : ''}">Ienākumi</button></div>
+      <div class="seg"><button type="button" data-type="expense" class="${t.type === 'expense' || !t.type ? 'on' : ''}">Izdevumi</button><button type="button" data-type="income" class="${t.type === 'income' ? 'on' : ''}">Ienākumi</button><button type="button" data-type="transfer" class="${t.type === 'transfer' ? 'on' : ''}">🔁 Starp kontiem</button></div>
       ${manual ? `<div class="seg"><button type="button" data-src="manuāli" class="${source !== CASH ? 'on' : ''}">Karte / konts</button><button type="button" data-src="${CASH}" class="${source === CASH ? 'on' : ''}">💶 Skaidrā naudā</button></div>` : ''}
     </div>
     <label class="field">Apraksts<input type="text" name="description" value="${esc(t.description || '')}" placeholder="${t.type === 'income' ? 'piem. Pārdots velosipēds' : 'piem. Tirgus'}" required></label>
     <div class="grid g2"><label class="field">Summa (€)<input type="number" name="amount" step="0.01" min="0" value="${t.amount ?? ''}" required></label>
     <label class="field">Datums<input type="date" name="date" value="${t.date || defaultDate()}" required></label></div>
-    <label class="field" id="catField" ${t.type === 'income' ? 'hidden' : ''}>Kategorija<select name="categoryId">${catOptions(t.categoryId)}</select></label>
+    <label class="field" id="catField" ${t.type && t.type !== 'expense' ? 'hidden' : ''}>Kategorija<select name="categoryId">${catOptions(t.categoryId)}</select></label>
+    ${manual ? '' : `<div class="sub">Konts: <b>${esc(accLabel(t.source))}</b></div>`}
+    ${party && !ownName(party) ? `<label class="check" id="ownField" ${t.type === 'transfer' ? '' : 'hidden'}><input type="checkbox" id="ownChk" checked> Vienmēr uzskatīt “${esc(party)}” par manu kontu</label>` : ''}
+    <div class="sub" id="transferHint" ${t.type === 'transfer' ? '' : 'hidden'}>Pārskaitījumi starp saviem kontiem netiek skaitīti ne pie ienākumiem, ne izdevumiem.</div>
     <div class="actions">${isNew ? '' : `<button type="button" class="btn danger" data-del="${t.id}">Dzēst</button>`}<span class="spacer"></span>
       <button type="button" class="btn" data-close>Atcelt</button><button class="btn primary">Saglabāt</button></div>
   </form>`);
   let type = t.type || 'expense';
   const f = $('#txForm');
-  $$('[data-type]', f).forEach(b => b.onclick = () => { type = b.dataset.type; $$('[data-type]', f).forEach(x => x.classList.toggle('on', x === b)); $('#catField').hidden = type === 'income'; });
+  $$('[data-type]', f).forEach(b => b.onclick = () => {
+    type = b.dataset.type; $$('[data-type]', f).forEach(x => x.classList.toggle('on', x === b));
+    $('#catField').hidden = type !== 'expense'; $('#transferHint').hidden = type !== 'transfer';
+    if ($('#ownField')) $('#ownField').hidden = type !== 'transfer';
+  });
   $$('[data-src]', f).forEach(b => b.onclick = () => { source = b.dataset.src; $$('[data-src]', f).forEach(x => x.classList.toggle('on', x === b)); });
   f.onsubmit = async e => {
     e.preventDefault();
     const body = { ...Object.fromEntries(new FormData(f)), type, ...(manual ? { source } : {}) };
     closeModal();
     ui.month = body.date.slice(0, 7); // show the month the transaction went into
+    const learnOwn = type === 'transfer' && $('#ownChk')?.checked;
     if (isNew) await mutate('POST', '/api/transactions', body, 'Darījums pievienots');
     else await mutate('PUT', `/api/transactions/${t.id}`, body, 'Saglabāts');
+    if (learnOwn) await mutate('PUT', '/api/settings', { ownNames: [...(S.settings.ownNames || []), party] }, `Visi “${party}” darījumi ir pārskaitījumi`);
   };
 }
+
+// Payee part of a bank description ("TOMS TEO · Izmaksa" -> "TOMS TEO").
+const partyOf = d => String(d || '').split(' · ')[0].trim().slice(0, 60);
+const ownName = p => (S.settings.ownNames || []).some(n => p.toLowerCase().startsWith(n.toLowerCase()));
+
+function ownNamesCard() {
+  return `<div class="card">
+    <h2>Mani konti</h2>
+    <div class="sub">Pārskaitījumi uz šiem vārdiem vai no tiem ir naudas pārvietošana starp taviem kontiem – tie netiek skaitīti ne pie ienākumiem, ne izdevumiem. Viens vārds rindā, tā kā tas redzams bankā.</div>
+    <form class="form" id="ownForm" style="margin-top:12px">
+      <textarea id="ownNames" rows="3" placeholder="VĀRDS UZVĀRDS">${esc((S.settings.ownNames || []).join('\n'))}</textarea>
+      <div class="actions" style="justify-content:flex-start"><button class="btn">Saglabāt</button></div>
+    </form>
+  </div>`;
+}
+
+// ---------- Voice ----------
+// Say the transactions in Latvian; Claude turns the text into rows for the same review screen as an import.
+// Mac app: local Whisper phrase by phrase (livevoice.js); browser/phone: the browser's speech recognition.
+let voiceRec = null; // running recogniser: { stop() → Promise }
+const BrowserSpeech = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+async function voiceForm() {
+  const mac = !!(window.finanses?.transcribe && window.LiveVoice) && (await window.finanses.voiceAvailable?.().catch(() => false));
+  const canListen = mac || !!BrowserSpeech;
+  openModal(`<h2>Pasaki, ko pievienot</h2>
+    <div class="sub">Piemēram: “Vakar Rimi divdesmit trīs eiro, šodien kafija trīs eiro skaidrā naudā.” Vari nosaukt arī kontu, piem. “ar Revolut”.</div>
+    <div class="voice">
+      ${canListen ? `<button type="button" class="mic" id="micBtn" aria-label="Sākt vai beigt klausīšanos"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+        <div class="sub" id="micState">Nospied un runā</div>` : `<div class="sub">Šajā pārlūkā balss atpazīšanas nav – izmanto tastatūras diktēšanas pogu 🎤 vai ieraksti tekstu.</div>`}
+    </div>
+    <textarea id="voiceText" rows="4" placeholder="Te parādīsies teksts – vari to arī labot vai ierakstīt pats"></textarea>
+    <div class="actions"><button class="btn" data-close>Atcelt</button><button class="btn primary" id="voiceGo">Pievienot</button></div>`);
+  const box = $('#voiceText');
+  const add = t => { box.value = (box.value.trim() + ' ' + t.trim()).trim(); };
+  const setState = (on, msg) => {
+    $('#micBtn')?.classList.toggle('on', on);
+    if ($('#micState')) $('#micState').textContent = msg || (on ? 'Klausos… nospied vēlreiz, lai beigtu' : 'Nospied un runā');
+  };
+  const start = async () => {
+    try {
+      if (mac) {
+        if (window.finanses.micAccess && !(await window.finanses.micAccess())) throw new Error('Atļauj mikrofonu: Sistēmas iestatījumi → Privātums → Mikrofons');
+        voiceRec = await window.LiveVoice.start({
+          transcribe: (wav, prev) => window.finanses.transcribe(wav, prev),
+          onText: add, onError: m => toast(m),
+        });
+      } else {
+        const rec = new BrowserSpeech();
+        rec.lang = 'lv-LV'; rec.continuous = true; rec.interimResults = true;
+        const base = box.value;
+        let done = '';
+        rec.onresult = e => {
+          let interim = '';
+          for (let i = e.resultIndex; i < e.results.length; i++) {
+            if (e.results[i].isFinal) done += ' ' + e.results[i][0].transcript; else interim += e.results[i][0].transcript;
+          }
+          box.value = (base + ' ' + done + ' ' + interim).replace(/\s+/g, ' ').trim();
+        };
+        let ended;
+        const finished = new Promise(r => (ended = r));
+        rec.onend = () => { ended(); if (voiceRec?.rec === rec) { voiceRec = null; setState(false); } };
+        rec.onerror = e => { if (e.error !== 'no-speech' && e.error !== 'aborted') toast(e.error === 'not-allowed' ? 'Atļauj mikrofonu pārlūka iestatījumos' : 'Balss atpazīšana: ' + e.error); };
+        rec.start();
+        voiceRec = { rec, stop: () => { rec.stop(); return finished; } };
+      }
+      setState(true);
+    } catch (e) { voiceRec = null; setState(false); toast(e.message); }
+  };
+  const stop = async () => {
+    const r = voiceRec; voiceRec = null;
+    if (!r) return;
+    setState(false, 'Pabeidzu atpazīt…');
+    await r.stop().catch(() => {});
+    setState(false);
+  };
+  if ($('#micBtn')) {
+    $('#micBtn').onclick = () => (voiceRec ? stop() : start());
+    start(); // opened from a tap, so listening can begin right away
+  }
+  $('#voiceGo').onclick = async () => {
+    await stop();
+    const text = box.value.trim();
+    if (!text) return toast('Pasaki vai ieraksti, ko pievienot');
+    openModal(`<div class="row" style="gap:14px"><span class="spinner"></span><div><b>Saprotu teikto…</b><div class="sub">Claude izveido darījumus. Tas aizņem dažas sekundes.</div></div></div>`);
+    try {
+      const st = { categories: S.categories, rules: S.rules, transactions: S.transactions, settings: S.settings };
+      const res = window.finanses?.voiceParse && !PREVIEW ? await window.finanses.voiceParse(text, st) : await api('POST', '/api/voice', { text });
+      if (res.error) throw new Error(res.error);
+      if (!res.transactions.length) throw new Error('Tekstā neatradu darījumus');
+      reviewImport(res, 'Pārbaudi pirms pievienošanas');
+    } catch (e) { closeModal(); toast(e.message); }
+  };
+}
+// Closing the window stops listening.
+new MutationObserver(() => { if ($('#modal').hidden && voiceRec) { const r = voiceRec; voiceRec = null; r.stop().catch(() => {}); } })
+  .observe($('#modal'), { attributes: true, attributeFilter: ['hidden'] });
 
 // ---------- Import ----------
 // Photos from a phone are large: shrink images to max 2000 px JPEG before upload.
@@ -474,16 +594,16 @@ async function importFiles(files) {
   try {
     const payload = await Promise.all(files.map(prepareFile));
     const res = window.finanses?.importLocal && !PREVIEW
-      ? await window.finanses.importLocal(payload, { categories: S.categories, rules: S.rules, transactions: S.transactions })
+      ? await window.finanses.importLocal(payload, { categories: S.categories, rules: S.rules, transactions: S.transactions, settings: S.settings })
       : await api('POST', '/api/import', { files: payload });
     if (res.error) throw new Error(res.error);
     reviewImport(res);
   } catch (e) { closeModal(); toast(e.message); }
 }
 
-function reviewImport({ transactions: txs, warnings }) {
+function reviewImport({ transactions: txs, warnings }, title = 'Pārbaudi importu') {
   if (!txs.length) { closeModal(); toast(warnings[0] || 'Darījumi netika atrasti'); return; }
-  openModal(`<h2>Pārbaudi importu</h2>
+  openModal(`<h2>${title}</h2>
     <div class="sub" style="margin-bottom:14px">Atrasti ${txs.length} darījumi. Vari mainīt kategorijas pirms saglabāšanas.${txs.some(t => t.duplicate) ? ' Iespējamie dublikāti ir atzīmēti pelēki un neatķeksēti.' : ''}</div>
     ${warnings.length ? `<div class="sub warn" style="margin-bottom:10px">${warnings.map(esc).join('<br>')}</div>` : ''}
     <table id="importTable"><thead><tr><th style="width:30px"><label class="all-chk"><input type="checkbox" id="allChk" checked><span>Atzīmēt visus</span></label></th><th>Datums</th><th>Apraksts</th><th>Kategorija</th><th class="r">Summa</th></tr></thead>
@@ -491,8 +611,8 @@ function reviewImport({ transactions: txs, warnings }) {
       <td><input type="checkbox" class="chk" ${t.duplicate ? '' : 'checked'}></td>
       <td><input type="date" class="d" value="${t.date}"></td>
       <td><input type="text" class="ds" value="${esc(t.description)}"></td>
-      <td>${t.type === 'income' ? '<span class="pos">Ienākumi</span>' : `<select class="c">${catOptions(t.categoryId)}</select>`}</td>
-      <td class="r num ${t.type === 'income' ? 'pos' : ''}" style="white-space:nowrap">${t.type === 'income' ? '+' : '−'}${money(t.amount)}</td></tr>`).join('')}</tbody></table>
+      <td>${t.type === 'income' ? '<span class="pos">Ienākumi</span>' : t.type === 'transfer' ? '<span class="sub">🔁 Starp kontiem</span>' : `<select class="c">${catOptions(t.categoryId)}</select>`}${t.source && t.source !== 'manuāli' && !/\.\w{2,4}$/.test(t.source) ? `<div class="sub">${esc(accLabel(t.source))}</div>` : ''}</td>
+      <td class="r num ${t.type === 'income' ? 'pos' : ''}" style="white-space:nowrap">${t.type === 'income' ? '+' : t.type === 'transfer' ? '' : '−'}${money(t.amount)}</td></tr>`).join('')}</tbody></table>
     <div class="actions"><button class="btn" data-close>Atcelt</button><button class="btn primary" id="saveImport">Saglabāt</button></div>`, true);
   const upd = () => { $('#saveImport').textContent = `Saglabāt ${$$('.chk:checked').length}`; };
   upd();
@@ -716,14 +836,30 @@ function bankCard(b) {
         <div class="row"><b>${esc(c.bank)}</b><span class="spacer"></span>
           <button class="btn ghost" data-bankrenew="${esc(c.bank)}" data-country="${esc(c.country)}">Atjaunot atļauju</button>
           <button class="icon-btn" data-bankdel="${esc(c.id)}" title="Atvienot">×</button></div>
-        ${c.accounts.map(a => `<div class="bank-acc"><span>${esc(a.name || 'Konts')} <span class="sub">${esc(a.iban)}</span></span>
-          <span class="num">${a.balance != null ? money(a.balance) : ''}</span></div>`).join('')}
+        ${c.accounts.map(a => `<div class="bank-acc ${a.skip ? 'off' : ''}" data-conn="${esc(c.id)}" data-uid="${esc(a.uid)}" data-old="${esc(a.label || '')}">
+          <input type="text" class="acc-label" value="${esc(a.label)}" placeholder="${esc(a.name || 'Konts')}" aria-label="Konta nosaukums">
+          <span class="sub">${esc(a.iban)}</span>
+          <label class="check sub"><input type="checkbox" class="acc-skip" ${a.skip ? 'checked' : ''}> Nelietot</label>
+          <span class="num">${a.balance != null && !a.skip ? money(a.balance) : ''}</span></div>`).join('')}
         <div class="sub ${late ? 'warn' : ''}">${c.error ? esc(c.error) + ' · ' : ''}${c.syncedAt ? 'Ielādēts ' + new Date(c.syncedAt).toLocaleString('lv-LV', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Vēl nav ielādēts'}
           · atļauja līdz ${fmtDate(c.validUntil)}${d < 14 ? ` (vēl ${Math.max(0, d)} d.)` : ''}</div>
       </div>`;
     }).join('') || '<div class="sub" style="margin-top:10px">Vēl nav pieslēgta neviena banka.</div>'}
+    ${conns.length ? '<div class="sub" style="margin-top:12px">Konta nosaukums redzams pie katra darījuma, un pēc tā var filtrēt darījumus. Konti ar “Nelietot” netiek ielādēti.</div>' : ''}
     <div class="sub" style="margin-top:12px">${b.daily ? `Jaunie darījumi Google Sheets ielādējas paši katru dienu ap 6:00, arī ja programma nav atvērta${b.lastDaily ? ` (pēdējoreiz ${new Date(b.lastDaily.at).toLocaleString('lv-LV', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}, +${b.lastDaily.added})` : ''}, un vēl atverot programmu.` : 'Jaunie darījumi ielādējas, kad atver programmu (ne biežāk kā reizi 6 stundās).'} Tie tiek sašķiroti kategorijās. Pārskaitījumi starp taviem kontiem un Revolut papildināšana netiek skaitīti kā izdevumi. Bankas atļauja jāatjauno ik pēc 180 dienām.</div>
   </div>`;
+}
+
+// Account name / not used, saved on the server (Bank.gs bankAccount); older transactions get the new name.
+async function saveAccount(row) {
+  if (PREVIEW) return toast('Priekšskatījumā bankas nav pieejamas');
+  const conn = BANK?.connections.find(c => c.id === row.dataset.conn), acc = conn?.accounts.find(a => a.uid === row.dataset.uid);
+  const oldLabel = acc ? (acc.label || (conn.accounts.length < 2 ? conn.bank : `${conn.bank} …${acc.iban.slice(-4)}`)) : '';
+  try {
+    BANK = (await call('bankAccount', { connId: row.dataset.conn, uid: row.dataset.uid, label: $('.acc-label', row).value, skip: $('.acc-skip', row).checked, oldLabel })).result;
+    await refresh();
+    toast('Konts saglabāts');
+  } catch (e) { toast(e.message); }
 }
 
 async function bankPicker() {
@@ -796,6 +932,7 @@ function settings() {
     <div class="actions" style="justify-content:flex-start">${info.sheetUrl ? `<a class="btn" href="${esc(info.sheetUrl)}" target="_blank">Atvērt tabulu ↗</a>` : '<span class="sub">Ielādē…</span>'}</div>
   </div>
   ${bankCard(bank)}
+  ${ownNamesCard()}
   <div class="card">
     <h2>Izrakstu lasīšana ar Claude</h2>
     <div class="sub">${isMac ? 'Šajā Mac programmā izrakstus un ekrānuzņēmumus lasa tavs Claude Code (bez papildu maksas).' : 'Telefonā un pārlūkā izrakstus lasa Claude caur API atslēgu.'}
@@ -849,6 +986,7 @@ document.addEventListener('click', async e => {
     case 'nextMonth': ui.month = shiftMonth(ui.month, 1); return render();
     case 'txMonth': ui.txMonth = el.dataset.v; return render();
     case 'addTx': return txForm({ type: 'expense', categoryId: S.categories[0]?.id });
+    case 'voice': return voiceForm();
     case 'addCash': return txForm({ type: 'expense', categoryId: S.categories[0]?.id, source: CASH });
     case 'addCat': return saveBudget({ categories: [...collectCats(), { name: 'Jauna kategorija', icon: '🏷️', color: '#8E8E93', limit: 0 }] });
     case 'addPos': return mutate('PUT', '/api/savings/positions', { positions: [...collectPositions(), { name: 'Jauna pozīcija', assetType: S.savings.assetTypes[0], place: '' }] });
@@ -889,6 +1027,8 @@ document.addEventListener('change', e => {
   if (t.id === 'fileIn') return importFiles([...t.files]);
   if (t.id === 'ebKey') { $('#ebKeyName').textContent = t.files[0]?.name || 'Izvēlēties .pem…'; return; }
   if (t.id === 'filterCat') { ui.filterCat = t.value; return render(); }
+  if (t.id === 'filterAcc') { ui.filterAcc = t.value; return render(); }
+  if (t.matches('.acc-label, .acc-skip')) return saveAccount(t.closest('.bank-acc'));
   if (t.closest('#catTable') || t.id === 'totalLimit') return saveBudget();
   if (t.closest('#posTable')) {
     if (t.classList.contains('pv')) return mutate('PUT', '/api/savings/snapshot', { month: ui.month, values: collectValues() });
@@ -915,6 +1055,11 @@ document.addEventListener('submit', async e => {
       render(); toast('Enable Banking pieslēgts. Tagad pieslēdz banku.');
     } catch (err) { toast(err.message); }
     return;
+  }
+  if (e.target.id === 'ownForm') {
+    e.preventDefault();
+    const ownNames = $('#ownNames').value.split('\n').map(s => s.trim()).filter(Boolean);
+    return mutate('PUT', '/api/settings', { ownNames }, 'Saglabāts');
   }
   if (e.target.id !== 'pinForm') return;
   e.preventDefault();

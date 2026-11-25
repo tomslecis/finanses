@@ -224,7 +224,27 @@ html.is-app nav a.active svg { color: var(--accent); }
 .copy { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .copy code { overflow-wrap: anywhere; user-select: all; }
 .bank { border-top: 1px solid var(--line); padding: 12px 0 4px; margin-top: 12px; }
-.bank-acc { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; }
+.bank-acc { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 0; }
+.bank-acc .acc-label { flex: 1; max-width: 260px; }
+.bank-acc .num { margin-left: auto; }
+.bank-acc.off .acc-label, .bank-acc.off > .sub { opacity: .45; }
+label.check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
+textarea { width: 100%; box-sizing: border-box; border: 1px solid transparent; background: var(--fill); border-radius: 12px; padding: 10px 12px;
+  font: inherit; color: inherit; outline: none; resize: vertical; transition: border-color .15s, background .15s; }
+textarea:focus { border-color: var(--accent); background: var(--card); }
+
+/* Transfers between own accounts: shown, but quiet (not counted) */
+.tx.transfer .amt, .tx.transfer .desc b { color: var(--muted); font-weight: 500; }
+
+/* Voice entry */
+.voice { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 22px 0 16px; }
+.mic { width: 76px; height: 76px; border-radius: 50%; border: 0; cursor: pointer; display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent); transition: transform .15s ease-out, background .2s; }
+.mic svg { width: 32px; height: 32px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.mic:active { transform: scale(.96); }
+.mic.on { background: var(--red); color: #fff; animation: listen 1.6s ease-in-out infinite; }
+@keyframes listen { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--red) 35%, transparent); } 50% { box-shadow: 0 0 0 14px transparent; } }
+@media (prefers-reduced-motion: reduce) { .mic.on { animation: none; } }
 .bank-list { display: grid; gap: 4px; max-height: 50vh; overflow: auto; margin: 12px 0; }
 .bank-pick { display: flex; align-items: center; gap: 12px; padding: 10px; border: 0; border-radius: 12px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
 .bank-pick:hover { background: var(--fill); }
@@ -241,7 +261,7 @@ html.is-app nav a.active svg { color: var(--accent); }
 
   /* Top bar */
   .topbar {
-    display: grid; grid-template-columns: 48px 1fr 48px; align-items: center; position: sticky; top: 0; z-index: 15;
+    display: grid; grid-template-columns: 92px 1fr 92px; align-items: center; position: sticky; top: 0; z-index: 15;
     padding: env(safe-area-inset-top) 6px 0; min-height: calc(52px + env(safe-area-inset-top));
     background: rgba(245, 245, 247, .82); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
     border-bottom: .5px solid var(--line);
@@ -250,6 +270,8 @@ html.is-app nav a.active svg { color: var(--accent); }
   .burger, .top-add { width: 44px; height: 44px; border: 0; background: transparent; border-radius: 12px; display: grid; place-items: center; cursor: pointer; color: var(--accent); }
   .burger svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
   .top-add { font-size: 30px; font-weight: 300; line-height: 1; justify-self: end; }
+  .topbar-act { display: flex; justify-content: flex-end; }
+  .top-add svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
   .burger:active, .top-add:active { background: var(--fill); }
 
   /* Slide-in menu (light) */
@@ -350,6 +372,8 @@ html.is-app nav a.active svg { color: var(--accent); }
   #pinForm input { flex: 1 1 140px; width: auto !important; }
   #bankSetup input[type=text] { flex: 1 1 100%; }
   .bank-acc > span:first-child { overflow-wrap: anywhere; }
+  .bank-acc { flex-wrap: wrap; row-gap: 6px; padding: 8px 0; }
+  .bank-acc .acc-label { flex: 1 1 100%; max-width: none; }
 
   /* Sheets slide up from the bottom */
   .modal { place-items: end stretch; grid-template-columns: 100%; padding: 0; }

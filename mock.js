@@ -12,19 +12,21 @@ window.MockAPI = (() => {
   ].map(([name, color, limit]) => ({ id: uid(), name, color, limit, icon: ICONS[name] }));
   const c = n => cats.find(x => x.name === n).id;
   const m0 = ym(0), m1 = ym(-1);
-  const tx = (d, description, amount, cat, type = 'expense') => ({ id: uid(), date: d, description, amount, type, categoryId: cat ? c(cat) : null, source: 'paraugs' });
+  const tx = (d, description, amount, cat, type = 'expense', source = 'Swedbank main') => ({ id: uid(), date: d, description, amount, type, categoryId: cat ? c(cat) : null, source });
   const state = {
-    settings: { currency: 'EUR', totalLimit: 1800, sheetUrl: '', sheetWebAppUrl: '', sheetToken: 'preview', lastSync: null, lastSyncError: null },
+    settings: { currency: 'EUR', totalLimit: 1800, ownNames: ['JĀNIS PARAUGS'], sheetUrl: '', sheetWebAppUrl: '', sheetToken: 'preview', lastSync: null, lastSyncError: null },
     categories: cats,
     rules: {},
     transactions: [
       tx(`${m0}-02`, 'SIA Darbs · Alga', 2400, null, 'income'),
-      tx(`${m0}-03`, 'RIMI Hypermarket', 64.2, 'Pārtika'),
+      tx(`${m0}-03`, 'RIMI Hypermarket', 64.2, 'Pārtika', 'expense', 'Swedbank main'),
       tx(`${m0}-04`, 'Bolt', 8.4, 'Transports'),
-      tx(`${m0}-05`, 'Spotify', 11.99, 'Abonementi'),
+      tx(`${m0}-05`, 'Spotify', 11.99, 'Abonementi', 'expense', 'Revolut'),
+      tx(`${m0}-05`, 'JĀNIS PARAUGS · uz krājkontu', 300, null, 'transfer'),
+      tx(`${m0}-07`, 'Tirgus', 12, 'Pārtika', 'expense', 'skaidra nauda'),
       tx(`${m0}-06`, 'Īre', 450, 'Mājoklis un komunālie'),
       tx(`${m0}-08`, 'Maxima', 38.75, 'Pārtika'),
-      tx(`${m0}-09`, 'Kafejnīca Mr. Fox', 14.5, 'Kafejnīcas un restorāni'),
+      tx(`${m0}-09`, 'Kafejnīca Mr. Fox', 14.5, 'Kafejnīcas un restorāni', 'expense', 'Revolut'),
       tx(`${m0}-10`, 'Circle K', 52, 'Transports'),
       tx(`${m0}-11`, 'Cinamon', 18, 'Izklaide'),
       tx(`${m0}-12`, 'Zara', 89.9, 'Iepirkšanās'),
@@ -56,7 +58,7 @@ window.MockAPI = (() => {
     if (key === 'GET state') return JSON.parse(JSON.stringify(state));
     if (key === 'POST transactions') {
       const list = Array.isArray(body.transactions) ? body.transactions : [body];
-      list.forEach(t => state.transactions.push({ ...t, id: uid(), amount: round(t.amount), categoryId: t.type === 'income' ? null : t.categoryId }));
+      list.forEach(t => state.transactions.push({ ...t, id: uid(), amount: round(t.amount), categoryId: t.type === 'expense' ? t.categoryId : null }));
       return { added: list.length };
     }
     if (key === 'PUT transactions') { Object.assign(state.transactions.find(t => t.id === id), body, { amount: round(body.amount) }); return {}; }
@@ -74,6 +76,14 @@ window.MockAPI = (() => {
     if (key === 'PUT settings') { Object.assign(state.settings, body); return {}; }
     if (key === 'GET apps-script') return { script: '// Priekšskatījums: skripts pieejams lietotnē' };
     if (key === 'POST sync') throw new Error('Priekšskatījumā sinhronizācija nav pieejama');
+    if (key === 'POST voice') {
+      // Sample answer so the voice screen can be tried without Claude.
+      const today = new Date().toISOString().slice(0, 10);
+      return { warnings: [], transactions: [
+        { date: today, description: 'Rimi', amount: 23.5, type: 'expense', categoryId: c('Pārtika'), source: 'manuāli' },
+        { date: today, description: 'Kafija', amount: 3, type: 'expense', categoryId: c('Kafejnīcas un restorāni'), source: 'skaidra nauda' },
+      ] };
+    }
     if (key === 'POST import') throw new Error('Priekšskatījumā imports nav pieejams, atver lietotni');
     throw new Error('Nav atrasts');
   }
@@ -82,9 +92,9 @@ window.MockAPI = (() => {
     configured: true, appId: 'preview', daily: true, lastDaily: { at: new Date(new Date().setHours(6, 0, 0, 0)).toISOString(), added: 4, errors: [] },
     connections: [
       { id: 'b1', bank: 'Swedbank', country: 'LV', validUntil: new Date(Date.now() + 150 * 864e5).toISOString(), syncedAt: new Date().toISOString(), error: '',
-        accounts: [{ name: 'Norēķinu konts', iban: '•••• 4821', currency: 'EUR', balance: 1240.55 }, { name: 'Krājkonts', iban: '•••• 9310', currency: 'EUR', balance: 9300 }] },
+        accounts: [{ uid: 'a1', name: 'Norēķinu konts', label: 'Swedbank main', iban: '•••• 4821', currency: 'EUR', balance: 1240.55 }, { uid: 'a2', name: 'Krājkonts', label: '', skip: true, iban: '•••• 9310', currency: 'EUR', balance: 9300 }] },
       { id: 'b2', bank: 'Revolut', country: 'LV', validUntil: new Date(Date.now() + 9 * 864e5).toISOString(), syncedAt: new Date(Date.now() - 3 * 36e5).toISOString(), error: '',
-        accounts: [{ name: 'EUR', iban: '•••• 0077', currency: 'EUR', balance: 212.4 }] },
+        accounts: [{ uid: 'a3', name: 'EUR', label: 'Revolut', iban: '•••• 0077', currency: 'EUR', balance: 212.4 }] },
     ],
   };
   return { handle, bank };
