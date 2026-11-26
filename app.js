@@ -1058,7 +1058,7 @@ function settings() {
   <div class="card">
     <h2>Izrakstu lasīšana ar Claude</h2>
     <div class="sub">${isMac ? 'Šajā Mac programmā izrakstus un ekrānuzņēmumus lasa tavs Claude Code (bez papildu maksas).' : 'Telefonā un pārlūkā izrakstus lasa Claude caur API atslēgu.'}
-      ${info.claudeKey === false ? ' Claude API atslēga Google pusē vēl nav pievienota, tāpēc telefonā imports darbojas tikai XML failiem.' : info.claudeKey ? ' Claude API atslēga ir pievienota.' : ''}</div>
+      ${info.claudeKey === false ? (info.voiceKey ? ' Claude API atslēgas nav, tāpēc telefonā izrakstus un balsi saprot Gemini.' : ' Claude API atslēga Google pusē vēl nav pievienota – pievieno Gemini atslēgu zemāk, tad telefonā izrakstus un balsi saprot Gemini.') : info.claudeKey ? ' Claude API atslēga ir pievienota.' : ''}</div>
   </div>
   <div class="card">
     <h2>Balss ievade telefonā</h2>
