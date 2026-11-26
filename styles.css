@@ -378,7 +378,9 @@ input.bare:focus, select.bare:focus { background: var(--card); border-color: var
   .head h1 { display: none; }
   .head:has(> h1:only-child) { display: none; }
   .head > .row { width: 100%; flex-wrap: wrap; gap: 8px; }
-  .head > .row > .btn { flex: 1; }
+  .head > .row > .btn { flex: 1 1 auto; white-space: nowrap; }
+  /* The top bar already has voice and add buttons */
+  .head > .row > .btn[data-act=voice], .head > .row > .btn[data-act=addTx] { display: none; }
   .month-switch { display: flex; width: 100%; justify-content: space-between; }
   .month-switch span { min-width: 0; font-size: 16px; }
   .month-switch button { width: 40px; height: 40px; font-size: 22px; }

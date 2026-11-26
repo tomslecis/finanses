@@ -514,10 +514,40 @@ function ownNamesCard() {
 // Mac app: local Whisper phrase by phrase (livevoice.js); browser/phone: the browser's speech recognition.
 let voiceRec = null; // running recogniser: { stop() → Promise }
 const BrowserSpeech = window.SpeechRecognition || window.webkitSpeechRecognition;
+// iPhone/iPad speech recognition has no Latvian: record audio there and let the server transcribe it.
+const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const CAN_RECORD = !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+let speechFails = false; // browser recognition refused Latvian once, so record from then on
+
+// Records until stop(), then sends the audio to the server and passes the transcript to onText.
+async function recordVoice(onText, onBusy) {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const type = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'].find(t => MediaRecorder.isTypeSupported?.(t)) || '';
+  const rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+  const chunks = [];
+  rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+  const stopped = new Promise(r => (rec.onstop = r));
+  rec.start();
+  return {
+    stop: async discard => {
+      if (rec.state !== 'inactive') rec.stop();
+      await stopped;
+      stream.getTracks().forEach(t => t.stop());
+      if (discard) return;
+      const blob = new Blob(chunks, { type: rec.mimeType || type || 'audio/mp4' });
+      if (blob.size < 2000) return;
+      onBusy?.();
+      const audio = await new Promise((ok, bad) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result).split(',')[1]); fr.onerror = bad; fr.readAsDataURL(blob); });
+      const r = await call('transcribe', { audio, mime: blob.type });
+      if (r.result?.text) onText(r.result.text);
+    },
+  };
+}
 
 async function voiceForm() {
   const mac = !!(window.finanses?.transcribe && window.LiveVoice) && (await window.finanses.voiceAvailable?.().catch(() => false));
-  const canListen = mac || !!BrowserSpeech;
+  const record = !mac && CAN_RECORD && !PREVIEW && (IOS || speechFails || !BrowserSpeech);
+  const canListen = mac || record || !!BrowserSpeech;
   openModal(`<h2>Pasaki, ko pievienot</h2>
     <div class="sub">Piemēram: “Vakar Rimi divdesmit trīs eiro, šodien kafija trīs eiro skaidrā naudā.” Vari nosaukt arī kontu, piem. “ar Revolut”.</div>
     <div class="voice">
@@ -540,6 +570,8 @@ async function voiceForm() {
           transcribe: (wav, prev) => window.finanses.transcribe(wav, prev),
           onText: add, onError: m => toast(m),
         });
+      } else if (record) {
+        voiceRec = await recordVoice(add, () => setState(false, 'Atpazīstu teikto…'));
       } else {
         const rec = new BrowserSpeech();
         rec.lang = 'lv-LV'; rec.continuous = true; rec.interimResults = true;
@@ -555,7 +587,11 @@ async function voiceForm() {
         let ended;
         const finished = new Promise(r => (ended = r));
         rec.onend = () => { ended(); if (voiceRec?.rec === rec) { voiceRec = null; setState(false); } };
-        rec.onerror = e => { if (e.error !== 'no-speech' && e.error !== 'aborted') toast(e.error === 'not-allowed' ? 'Atļauj mikrofonu pārlūka iestatījumos' : 'Balss atpazīšana: ' + e.error); };
+        rec.onerror = e => {
+          if (e.error === 'no-speech' || e.error === 'aborted') return;
+          if (CAN_RECORD && /language-not-supported|service-not-allowed|network/.test(e.error)) { speechFails = true; return toast('Šis pārlūks latviski neatpazīst – nospied 🎤 vēlreiz, ierakstīšu un atpazīšu serverī'); }
+          toast(e.error === 'not-allowed' ? 'Atļauj mikrofonu pārlūka iestatījumos' : 'Balss atpazīšana: ' + e.error);
+        };
         rec.start();
         voiceRec = { rec, stop: () => { rec.stop(); return finished; } };
       }
@@ -566,7 +602,7 @@ async function voiceForm() {
     const r = voiceRec; voiceRec = null;
     if (!r) return;
     setState(false, 'Pabeidzu atpazīt…');
-    await r.stop().catch(() => {});
+    await r.stop().catch(e => toast(e.message));
     setState(false);
   };
   if ($('#micBtn')) {
@@ -588,7 +624,7 @@ async function voiceForm() {
   };
 }
 // Closing the window stops listening.
-new MutationObserver(() => { if ($('#modal').hidden && voiceRec) { const r = voiceRec; voiceRec = null; r.stop().catch(() => {}); } })
+new MutationObserver(() => { if ($('#modal').hidden && voiceRec) { const r = voiceRec; voiceRec = null; r.stop(true).catch(() => {}); } })
   .observe($('#modal'), { attributes: true, attributeFilter: ['hidden'] });
 
 // ---------- Import ----------
@@ -1024,6 +1060,15 @@ function settings() {
     <div class="sub">${isMac ? 'Šajā Mac programmā izrakstus un ekrānuzņēmumus lasa tavs Claude Code (bez papildu maksas).' : 'Telefonā un pārlūkā izrakstus lasa Claude caur API atslēgu.'}
       ${info.claudeKey === false ? ' Claude API atslēga Google pusē vēl nav pievienota, tāpēc telefonā imports darbojas tikai XML failiem.' : info.claudeKey ? ' Claude API atslēga ir pievienota.' : ''}</div>
   </div>
+  <div class="card">
+    <h2>Balss ievade telefonā</h2>
+    <div class="sub">iPhone pats latviski neatpazīst, tāpēc ierakstu atpazīst Google Gemini. Bezmaksas atslēgu izveido <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a> un ielīmē šeit.
+      ${info.voiceKey ? ' Atslēga ir pievienota.' : info.voiceKey === false ? ' Atslēga vēl nav pievienota.' : ''}</div>
+    <form class="row" id="voiceKeyForm" style="flex-wrap:wrap;gap:10px;margin-top:10px">
+      <input type="password" id="voiceKey" autocomplete="off" placeholder="${info.voiceKey ? 'Jauna atslēga (tukšs – noņemt)' : 'Gemini API atslēga'}" style="flex:1;min-width:200px">
+      <button class="btn">Saglabāt</button>
+    </form>
+  </div>
   ${webUrl ? `<div class="card">
     <h2>Lietot telefonā</h2>
     <div class="sub">Atver <a href="${esc(webUrl)}" target="_blank">${esc(webUrl)}</a> telefonā, ienāc ar PIN un Safari izvēlnē izvēlies <b>Kopīgot → Pievienot sākuma ekrānam</b>.</div>
@@ -1162,6 +1207,17 @@ document.addEventListener('submit', async e => {
     e.preventDefault();
     const ownNames = $('#ownNames').value.split('\n').map(s => s.trim()).filter(Boolean);
     return mutate('PUT', '/api/settings', { ownNames }, 'Saglabāts');
+  }
+  if (e.target.id === 'voiceKeyForm') {
+    e.preventDefault();
+    if (PREVIEW) return toast('Priekšskatījumā netiek saglabāts');
+    try {
+      const r = await call('voiceKey', { key: $('#voiceKey').value });
+      if (INFO) INFO.voiceKey = r.result.voiceKey;
+      toast(r.result.voiceKey ? 'Atslēga saglabāta' : 'Atslēga noņemta');
+      render();
+    } catch (err) { toast(err.message); }
+    return;
   }
   if (e.target.id !== 'pinForm') return;
   e.preventDefault();
