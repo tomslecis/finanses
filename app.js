@@ -538,11 +538,14 @@ async function recordVoice(onText, onBusy) {
       if (blob.size < 2000) return;
       onBusy?.();
       const audio = await new Promise((ok, bad) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result).split(',')[1]); fr.onerror = bad; fr.readAsDataURL(blob); });
-      const r = await call('transcribe', { audio, mime: blob.type });
+      const r = await withTimeout(call('transcribe', { audio, mime: blob.type }), 60000);
       if (r.result?.text) onText(r.result.text);
     },
   };
 }
+
+// Rejects if the server has not answered in time, so the phone never waits forever.
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, bad) => setTimeout(() => bad(new Error('Serveris neatbild – pamēģini vēlreiz')), ms))]);
 
 async function voiceForm() {
   const mac = !!(window.finanses?.transcribe && window.LiveVoice) && (await window.finanses.voiceAvailable?.().catch(() => false));
@@ -616,7 +619,7 @@ async function voiceForm() {
     openModal(`<div class="row" style="gap:14px"><span class="spinner"></span><div><b>Saprotu teikto…</b><div class="sub">Claude izveido darījumus. Tas aizņem dažas sekundes.</div></div></div>`);
     try {
       const st = { categories: S.categories, rules: S.rules, transactions: S.transactions, settings: S.settings };
-      const res = window.finanses?.voiceParse && !PREVIEW ? await window.finanses.voiceParse(text, st) : await api('POST', '/api/voice', { text });
+      const res = window.finanses?.voiceParse && !PREVIEW ? await window.finanses.voiceParse(text, st) : await withTimeout(api('POST', '/api/voice', { text }), 90000);
       if (res.error) throw new Error(res.error);
       if (!res.transactions.length) throw new Error('Tekstā neatradu darījumus');
       reviewImport(res, 'Pārbaudi pirms pievienošanas');
